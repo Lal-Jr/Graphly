@@ -18,6 +18,35 @@ Trackers store "blocks" links and then ignore them. You can't see which issue is
 
 **The forecast is always in view.** The sidebar carries the ship date, the 85%-confidence date, progress and the length of the critical path, on every page.
 
+### See it in motion
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/clip-trace.gif" alt="Hovering board cards lights up everything upstream and downstream of them"></td>
+    <td width="50%"><img src="docs/media/clip-whatif.gif" alt="Dragging the what-if slider pushes the ship date and shifts dependent issues on the timeline"></td>
+  </tr>
+  <tr>
+    <td><b>Trace dependencies.</b> Hover a card to light up what it waits on (red) and what waits on it (indigo).</td>
+    <td><b>What if it slips?</b> Drag the slider and watch the ship date, dependent bars and due dates move.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/clip-graph.gif" alt="Drawing a link between two nodes in the dependency graph; a link that would create a cycle is refused"></td>
+    <td><img src="docs/media/clip-insights.gif" alt="Insights: the ship-date confidence curve and the critical path as a transit line"></td>
+  </tr>
+  <tr>
+    <td><b>Edit the graph.</b> Drag between nodes to link work. A link that would close a loop is refused.</td>
+    <td><b>Know how sure you are.</b> The ship date with its Monte Carlo spread, and the critical path as a transit line.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/clip-issue.gif" alt="Opening an issue in the side sheet and moving it to In Progress"></td>
+    <td><img src="docs/media/clip-theme.gif" alt="Switching the board between light and dark themes"></td>
+  </tr>
+  <tr>
+    <td><b>Issues open beside the board.</b> Status, details and the issue's own forecast in one sheet.</td>
+    <td><b>Light and dark.</b> Two tuned palettes, not an inversion.</td>
+  </tr>
+</table>
+
 | | |
 |---|---|
 | **Forecast dates** | Every open issue gets a start and finish date from the critical path method over working days. Epics finish when their last child does. |
