@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api, errorMessage } from '../api'
-import { TopNav } from '../components/TopNav'
+import { Sidebar } from '../components/Sidebar'
 import { useSession } from '../store/session'
 import { useTheme, type ThemeMode } from '../store/theme'
 import type { User } from '../types'
@@ -26,8 +26,8 @@ export function ProfilePage() {
   if (!user) return null
   return (
     <div className="app">
-      <TopNav />
-      <main className="home">
+      <Sidebar />
+      <main className="app-main home">
         <div className="home-inner narrow">
           <h1>Profile</h1>
           <section className="settings-card">

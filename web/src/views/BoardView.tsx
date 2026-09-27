@@ -6,7 +6,7 @@ import { useIssueParam } from '../store/nav'
 import { useProject } from '../store/useProject'
 import type { Issue, Status } from '../types'
 import { useToast } from '../ui/toast'
-import { Icon, TypeIcon } from '../ui/icons'
+import { Icon, StatusGlyph, TypeIcon } from '../ui/icons'
 import { Avatar, MenuList, Popover } from '../ui/primitives'
 
 type GroupBy = 'none' | 'assignee' | 'epic'
@@ -139,10 +139,10 @@ export function BoardView() {
             const all = visible.filter((i) => i.statusId === st.id)
             const days = all.reduce((sum, i) => sum + i.estimate, 0)
             return (
-              <div key={st.id} className="board-col-head">
+              <div key={st.id} className={`board-col-head cat-${st.category}`}>
+                <StatusGlyph category={st.category} />
                 <span className="col-name">{st.name}</span>
                 <span className="col-count">{all.length}</span>
-                {st.category === 'done' && <Icon name="check" size={14} className="col-done" />}
                 <span className="spacer" />
                 {days > 0 && <span className="col-days" title="Total estimate">{days}d</span>}
               </div>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { api, errorMessage } from '../api'
 import { useSession } from '../store/session'
@@ -8,25 +8,52 @@ import { Icon, Logo, type IconName } from '../ui/icons'
 import { Avatar, Button, MenuList, Modal, Popover } from '../ui/primitives'
 import { useToast } from '../ui/toast'
 
-export function TopNav({ onCreate, createLabel = 'Create' }: { onCreate?: () => void; createLabel?: string }) {
+const THEME_ICON: Record<ThemeMode, IconName> = { light: 'sun', dark: 'moon', system: 'monitor' }
+const NEXT_THEME: Record<ThemeMode, ThemeMode> = { light: 'dark', dark: 'system', system: 'light' }
+
+/**
+ * The app's one piece of chrome: a floating rail with the workspace, search, create and navigation.
+ * `children` adds a context section (a project's views), `footer` pins something above the user menu.
+ */
+export function Sidebar({
+  onCreate,
+  createLabel = 'New issue',
+  children,
+  footer,
+}: {
+  onCreate?: () => void
+  createLabel?: string
+  children?: ReactNode
+  footer?: ReactNode
+}) {
   const { user, workspaces, workspace, setWorkspace, logout, refresh } = useSession()
   const { mode, setMode } = useTheme()
   const nav = useNavigate()
   const [newWs, setNewWs] = useState(false)
 
   return (
-    <header className="topnav">
-      <Link to="/" className="brand">
-        <Logo size={26} />
-        <span>Graphly</span>
-      </Link>
+    <aside className="sidebar">
+      <div className="sb-brand">
+        <Link to="/" className="brand" title="Home">
+          <Logo size={26} />
+          <span>Graphly</span>
+        </Link>
+        <span className="spacer" />
+        <button className="icon-btn sm" onClick={() => setMode(NEXT_THEME[mode])} title={`Theme: ${mode} (click to change)`}>
+          <Icon name={THEME_ICON[mode]} size={16} />
+        </button>
+      </div>
 
       <Popover
-        width={260}
-        trigger={({ toggle, ref }) => (
-          <button ref={ref} className="nav-btn" onClick={toggle}>
-            <span className="truncate">{workspace?.name ?? 'Workspace'}</span>
-            <Icon name="chevron-down" size={14} />
+        width={248}
+        trigger={({ toggle, ref, open }) => (
+          <button ref={ref} className={`ws-switch${open ? ' open' : ''}`} onClick={toggle}>
+            <span className="ws-mark">{workspace?.name.slice(0, 1).toUpperCase() ?? '·'}</span>
+            <span className="ws-name">
+              <b className="truncate">{workspace?.name ?? 'Workspace'}</b>
+              <span className="muted small">{workspace?.role === 'admin' ? 'Admin' : 'Member'}</span>
+            </span>
+            <Icon name="chevrons" size={14} />
           </button>
         )}
       >
@@ -48,73 +75,52 @@ export function TopNav({ onCreate, createLabel = 'Create' }: { onCreate?: () => 
           />
         )}
       </Popover>
-      <NavLink to="/" end className="nav-link">
-        Your work
-      </NavLink>
 
-      {onCreate && (
-        <Button variant="primary" size="sm" icon={<Icon name="plus" size={16} />} onClick={onCreate}>
-          {createLabel}
-        </Button>
-      )}
-      <span className="spacer" />
-
-      <button
-        className="nav-search"
-        onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
-        title="Search (⌘K)"
-      >
-        <Icon name="search" size={16} />
-        <span>Search</span>
-        <kbd>⌘K</kbd>
-      </button>
-
-      <Popover
-        align="end"
-        width={200}
-        trigger={({ toggle, ref }) => (
-          <button ref={ref} className="icon-btn nav-icon" onClick={toggle} title="Theme">
-            <Icon name={mode === 'light' ? 'sun' : mode === 'dark' ? 'moon' : 'monitor'} size={18} />
+      <div className="sb-actions">
+        <button
+          className="sb-search"
+          onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
+          title="Search and jump (⌘K)"
+        >
+          <Icon name="search" size={15} />
+          <span>Search</span>
+          <kbd>⌘K</kbd>
+        </button>
+        {onCreate && (
+          <button className="sb-create" onClick={onCreate} title={`${createLabel} (C)`}>
+            <Icon name="plus" size={16} />
           </button>
         )}
-      >
-        {(close) => (
-          <MenuList
-            items={(['light', 'dark', 'system'] as ThemeMode[]).map((m) => ({
-              value: m,
-              label: m === 'system' ? 'Match system' : m === 'light' ? 'Light' : 'Dark',
-              icon: <Icon name={(m === 'light' ? 'sun' : m === 'dark' ? 'moon' : 'monitor') as IconName} size={14} />,
-            }))}
-            selected={mode}
-            onSelect={(m) => {
-              setMode(m)
-              close()
-            }}
-          />
-        )}
-      </Popover>
+      </div>
 
-      <Popover
-        align="end"
-        width={260}
-        trigger={({ toggle, ref }) => (
-          <button ref={ref} className="avatar-btn" onClick={toggle} title={user?.name}>
-            <Avatar user={user} size={30} />
-          </button>
-        )}
-      >
-        {(close) => (
-          <div>
-            <div className="menu-profile">
-              <Avatar user={user} size={36} />
-              <div>
-                <b>{user?.name}</b>
-                <span className="muted small">{user?.email}</span>
-              </div>
-            </div>
+      <nav className="sidebar-nav">
+        <NavLink to="/" end className="sidebar-link">
+          <Icon name="home" size={17} />
+          Your work
+        </NavLink>
+        {children}
+      </nav>
+
+      <div className="sb-bottom">
+        {footer}
+        <Popover
+          align="start"
+          width={248}
+          trigger={({ toggle, ref }) => (
+            <button ref={ref} className="sb-user" onClick={toggle}>
+              <Avatar user={user} size={28} />
+              <span className="ws-name">
+                <b className="truncate">{user?.name}</b>
+                <span className="muted small truncate">{user?.email}</span>
+              </span>
+              <Icon name="more" size={16} />
+            </button>
+          )}
+        >
+          {(close) => (
             <MenuList
               items={[
-                { value: 'profile', label: 'Profile', icon: <Icon name="settings" size={14} /> },
+                { value: 'profile', label: 'Profile & theme', icon: <Icon name="settings" size={14} /> },
                 { value: 'logout', label: 'Log out', icon: <Icon name="logout" size={14} /> },
               ]}
               onSelect={async (v) => {
@@ -125,9 +131,10 @@ export function TopNav({ onCreate, createLabel = 'Create' }: { onCreate?: () => 
                 } else nav('/profile')
               }}
             />
-          </div>
-        )}
-      </Popover>
+          )}
+        </Popover>
+      </div>
+
       {newWs && (
         <NewWorkspaceDialog
           onClose={() => setNewWs(false)}
@@ -139,7 +146,7 @@ export function TopNav({ onCreate, createLabel = 'Create' }: { onCreate?: () => 
           }}
         />
       )}
-    </header>
+    </aside>
   )
 }
 

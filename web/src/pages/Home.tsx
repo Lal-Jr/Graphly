@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { api, errorMessage } from '../api'
 import { CommandPalette } from '../components/CommandPalette'
-import { TopNav } from '../components/TopNav'
+import { Sidebar } from '../components/Sidebar'
 import { formatDate } from '../lib/forecast'
 import { useSession } from '../store/session'
 import type { MyWorkItem, Project, ProjectSummary } from '../types'
@@ -39,12 +39,43 @@ export function Home() {
 
   return (
     <div className="app">
-      <TopNav onCreate={() => setCreating(true)} createLabel="Create project" />
-      <main className="home">
+      <Sidebar onCreate={() => setCreating(true)} createLabel="New project">
+        {projects && projects.length > 0 && <span className="sidebar-heading">Projects</span>}
+        {projects?.map((p) => (
+          <NavLink key={p.id} to={`/p/${p.id}/board`} className="sidebar-link">
+            <span className="project-avatar sm">{p.key.slice(0, 2)}</span>
+            <span className="truncate">{p.name}</span>
+          </NavLink>
+        ))}
+      </Sidebar>
+      <main className="app-main home">
         <div className="home-inner">
-          <h1>
-            Good {hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'}, {user?.name.split(' ')[0]}
-          </h1>
+          <header className="home-hero">
+            <span className="eyebrow">{new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+            <h1>
+              Good {hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'}, {user?.name.split(' ')[0]}.
+            </h1>
+            {groups && (
+              <p className="home-summary">
+                {groups.blockingOthers.length > 0 ? (
+                  <>
+                    <b className="text-critical">{groups.blockingOthers.reduce((s, i) => s + i.waiting, 0)} issues</b> are waiting on you.{' '}
+                  </>
+                ) : (
+                  <>Nobody is waiting on you. </>
+                )}
+                {groups.next.length > 0 ? (
+                  <>
+                    <b>{groups.next.length}</b> {groups.next.length === 1 ? 'issue is' : 'issues are'} ready to start.
+                  </>
+                ) : groups.doing.length > 0 ? (
+                  <>
+                    <b>{groups.doing.length}</b> in progress.
+                  </>
+                ) : null}
+              </p>
+            )}
+          </header>
 
           <section>
             <div className="section-head">
@@ -58,10 +89,20 @@ export function Home() {
                   const total = p.openIssues + p.doneIssues
                   return (
                     <Link key={p.id} to={`/p/${p.id}/board`} className="project-card">
-                      <span className="project-avatar lg">{p.key.slice(0, 2)}</span>
+                      <span className="project-card-top">
+                        <span className="project-avatar lg">{p.key.slice(0, 2)}</span>
+                        <span className="mono muted small">{p.key}</span>
+                      </span>
                       <b>{p.name}</b>
-                      <span className="muted small">
-                        {p.key} · {p.openIssues} open
+                      <span className="project-stats">
+                        <span>
+                          <b>{p.openIssues}</b> open
+                        </span>
+                        <span>
+                          <b>{p.doneIssues}</b> done
+                        </span>
+                        <span className="spacer" />
+                        <span className="mono">{total ? Math.round((p.doneIssues / total) * 100) : 0}%</span>
                       </span>
                       <span className="meter" title={`${p.doneIssues} of ${total} done`}>
                         <span style={{ width: `${total ? (p.doneIssues / total) * 100 : 0}%` }} />
@@ -70,8 +111,10 @@ export function Home() {
                   )
                 })}
                 <button className="project-card project-card-new" onClick={() => setCreating(true)}>
-                  <Icon name="plus" size={24} />
-                  <b>Create project</b>
+                  <span className="new-mark">
+                    <Icon name="plus" size={20} />
+                  </span>
+                  <b>New project</b>
                   <span className="muted small">Start empty or with a sample plan</span>
                 </button>
               </div>

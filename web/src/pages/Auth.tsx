@@ -40,10 +40,13 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
     <div className="auth">
       <div className="auth-card">
         <div className="auth-brand">
-          <Logo size={36} />
+          <Logo size={32} />
           <span>Graphly</span>
         </div>
-        <h1>{mode === 'login' ? 'Log in to continue' : 'Create your account'}</h1>
+        <div>
+          <h1>{mode === 'login' ? 'Welcome back' : 'Start planning'}</h1>
+          <p className="muted">{mode === 'login' ? 'Log in to pick up where your plan left off.' : 'Create an account — it takes ten seconds.'}</p>
+        </div>
         <form onSubmit={submit} className="auth-form">
           {mode === 'signup' && (
             <label className="stack-field">
@@ -97,7 +100,7 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
             }
           }}
         >
-          Explore the demo — no sign-up
+          Try the live demo — no sign-up
         </Button>
         <p className="auth-switch">
           {mode === 'login' ? "Don't have an account?" : 'Already have an account?'}{' '}
@@ -105,22 +108,91 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
         </p>
       </div>
       <aside className="auth-aside">
-        <h2>Plan with the graph, not around it.</h2>
-        <ul>
+        <div className="auth-aside-copy">
+          <span className="eyebrow">Issue tracking, rewired</span>
+          <h2>
+            Plan with the graph,
+            <br />
+            not around it.
+          </h2>
+          <p>Every “blocks” link feeds a scheduler, so Graphly always knows what’s stuck, who’s holding it up, and when you’ll really ship.</p>
+        </div>
+        <GraphArt />
+        <ul className="auth-points">
           <li>
-            <Icon name="flame" size={18} /> Critical path and forecast dates, computed from your dependencies
+            <Icon name="route" size={16} /> Critical path &amp; forecast dates
           </li>
           <li>
-            <Icon name="block" size={18} /> Blockers ranked by how much work they hold up
+            <Icon name="target" size={16} /> 85%-confidence ship dates
           </li>
           <li>
-            <Icon name="sparkles" size={18} /> “What if this slips?” simulation before it happens
-          </li>
-          <li>
-            <Icon name="users" size={18} /> Real-time boards with live presence
+            <Icon name="sparkles" size={16} /> “What if it slips?” before it does
           </li>
         </ul>
       </aside>
+    </div>
+  )
+}
+
+/** A small plan drawn as a graph: signals flow along the coral critical path into the ship date. */
+function GraphArt() {
+  const nodes = [
+    { id: 'a', x: 40, y: 150, key: 'APL-4', crit: true },
+    { id: 'b', x: 190, y: 70, key: 'APL-5', crit: true },
+    { id: 'c', x: 190, y: 230, key: 'APL-7' },
+    { id: 'd', x: 340, y: 40, key: 'APL-6', crit: true },
+    { id: 'e', x: 340, y: 150, key: 'APL-8' },
+    { id: 'f', x: 340, y: 260, key: 'APL-12' },
+    { id: 'g', x: 490, y: 100, key: 'APL-9', crit: true },
+    { id: 'h', x: 490, y: 220, key: 'APL-13' },
+  ]
+  const edges: [string, string, boolean?][] = [
+    ['a', 'b', true], ['a', 'c'], ['b', 'd', true], ['b', 'e'], ['c', 'e'], ['c', 'f'], ['d', 'g', true], ['e', 'g'], ['f', 'h'], ['e', 'h'],
+  ]
+  const at = new Map(nodes.map((n) => [n.id, n]))
+  const W = 96
+  const H = 34
+  const path = (a: string, b: string) => {
+    const p = at.get(a)!
+    const q = at.get(b)!
+    const x1 = p.x + W
+    const y1 = p.y + H / 2
+    const x2 = q.x
+    const y2 = q.y + H / 2
+    const mx = (x1 + x2) / 2
+    return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`
+  }
+  return (
+    <div className="graph-art" aria-hidden>
+      <svg viewBox="0 0 700 310">
+        {edges.map(([a, b, crit]) => (
+          <path key={a + b} d={path(a, b)} className={crit ? 'ga-edge crit' : 'ga-edge'} />
+        ))}
+        <path d={`M${at.get('g')!.x + W},${at.get('g')!.y + H / 2} C620,117 610,160 628,160`} className="ga-edge crit" />
+        {edges
+          .filter(([, , crit]) => crit)
+          .map(([a, b], k) => (
+            <circle key={'p' + a + b} r="3.5" className="ga-pulse">
+              <animateMotion dur="2.4s" begin={`${k * 0.6}s`} repeatCount="indefinite" path={path(a, b)} />
+            </circle>
+          ))}
+        {nodes.map((n) => (
+          <g key={n.id} transform={`translate(${n.x},${n.y})`} className={n.crit ? 'ga-node crit' : 'ga-node'}>
+            <rect width={W} height={H} rx="9" />
+            <circle cx="14" cy={H / 2} r="4" />
+            <text x="26" y={H / 2 + 4}>{n.key}</text>
+          </g>
+        ))}
+        <g transform="translate(628,142)" className="ga-ship">
+          <rect width="64" height="36" rx="18" />
+          <text x="32" y="23" textAnchor="middle">Ship</text>
+        </g>
+      </svg>
+      <div className="ga-card">
+        <span className="eyebrow">Forecast</span>
+        <b>20 Oct</b>
+        <span>85% sure · 3 on the critical path</span>
+      </div>
     </div>
   )
 }

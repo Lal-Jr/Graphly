@@ -17,21 +17,27 @@ interface Props {
   onDropBefore?: (id: string) => void
 }
 
+/**
+ * A card is a node in the dependency graph, so it's drawn like one: a port on the left edge when it
+ * waits on open work, a port on the right when others wait on it, and its slack in the footer.
+ */
 export const IssueCard = memo(function IssueCard({ issue, relation, onOpen, onHover, onDragStart, onDropBefore }: Props) {
   const d = useProject()
   const { user } = useSession()
   const viewers = useViewers(issue.id, user?.id)
   const key = d.keyOf(issue)
-  const openBlockers = d.analysis.blockedBy.get(issue.id)?.length ?? 0
+  const blockers = d.analysis.blockedBy.get(issue.id) ?? []
   const impact = d.analysis.impact.get(issue.id) ?? 0
   const critical = d.analysis.criticalSet.has(issue.id)
   const atRisk = d.analysis.atRisk.includes(issue.id)
+  const slack = d.analysis.schedule.get(issue.id)?.slack
   const fc = d.forecasts.get(issue.id)
   const done = d.category(issue) === 'done'
   const epic = issue.epicId ? d.issueMap.get(issue.epicId) : null
   const assignee = issue.assigneeId ? d.memberMap.get(issue.assigneeId) : null
+  const blockerKeys = blockers.map((b) => d.keyOf(d.issueMap.get(b)!))
 
-  const cls = ['issue-card', done && 'is-done', openBlockers > 0 && 'is-blocked', critical && 'is-critical', relation && `rel-${relation}`]
+  const cls = ['issue-card', done && 'is-done', blockers.length > 0 && 'is-blocked', critical && 'is-critical', relation && `rel-${relation}`]
     .filter(Boolean)
     .join(' ')
 
@@ -58,71 +64,94 @@ export const IssueCard = memo(function IssueCard({ issue, relation, onOpen, onHo
       onMouseEnter={() => onHover?.(issue.id)}
       onMouseLeave={() => onHover?.(null)}
     >
+      {!done && blockers.length > 0 && (
+        <span className="port port-in" title={`Waiting on ${blockerKeys.join(', ')}`}>
+          {blockers.length}
+        </span>
+      )}
+      {!done && impact > 0 && (
+        <span className="port port-out" title={`${impact} open issues wait on this`}>
+          {impact}
+        </span>
+      )}
       {viewers.length > 0 && (
         <span className="card-viewers" title={`${viewers.map((v) => v.name).join(', ')} viewing`}>
           <AvatarStack users={viewers.map((v) => ({ ...v, key: v.userId }))} size={18} max={3} />
         </span>
       )}
+
+      <header className="card-head">
+        <TypeIcon type={issue.type} size={15} />
+        <span className={`issue-key${done ? ' done' : ''}`}>{key}</span>
+        <span className="spacer" />
+        <PriorityIcon priority={issue.priority} size={15} />
+      </header>
+
       <p className="card-title">{issue.title}</p>
 
-      {(epic || issue.labels.length > 0) && (
-        <div className="card-tags">
-          {epic && <span className="epic-chip">{epic.title}</span>}
-          {issue.labels.slice(0, 2).map((l) => (
-            <span key={l} className="label-chip">
-              {l}
-            </span>
-          ))}
-          {issue.labels.length > 2 && <span className="label-chip">+{issue.labels.length - 2}</span>}
-        </div>
-      )}
-
-      {!done && (openBlockers > 0 || impact > 0 || critical || (fc?.daysLate ?? 0) > 0) && (
+      {!done && (atRisk || blockers.length > 0 || (fc?.daysLate ?? 0) > 0) && (
         <div className="card-signals">
-          {atRisk ? (
-            <span className="signal signal-danger" title="Work has started but a blocker is still open">
-              <Icon name="warning" size={12} /> At risk
-            </span>
-          ) : (
-            openBlockers > 0 && (
-              <span className="signal signal-danger" title={`Waiting on ${d.analysis.blockedBy.get(issue.id)!.map((b) => d.keyOf(d.issueMap.get(b)!)).join(', ')}`}>
-                <Icon name="block" size={12} /> Blocked by {openBlockers}
-              </span>
-            )
-          )}
-          {impact > 0 && (
-            <span className="signal signal-warning" title={`${impact} open issues are waiting on this`}>
-              <Icon name="link" size={12} /> Blocks {impact}
-            </span>
-          )}
-          {critical && (
-            <span className="signal signal-critical" title="On the critical path — any delay moves the finish date">
-              <Icon name="flame" size={12} /> Critical
+          {blockers.length > 0 && (
+            <span className={`signal ${atRisk ? 'signal-danger' : 'signal-wait'}`} title={atRisk ? 'Started while a blocker is still open' : `Waiting on ${blockerKeys.join(', ')}`}>
+              <Icon name={atRisk ? 'warning' : 'block'} size={12} />
+              {atRisk ? 'At risk · ' : 'Waiting on '}
+              <span className="mono">{blockerKeys[0]}</span>
+              {blockerKeys.length > 1 && ` +${blockerKeys.length - 1}`}
             </span>
           )}
           {fc && fc.daysLate > 0 && (
             <span className="signal signal-danger" title={`Forecast to finish ${formatDate(fc.finish)}, due ${formatDate(issue.dueDate!)}`}>
-              <Icon name="clock" size={12} /> {fc.daysLate}d late
+              <Icon name="clock" size={12} /> {fc.daysLate}d past due
             </span>
           )}
         </div>
       )}
 
+      {(epic || issue.labels.length > 0) && (
+        <div className="card-tags">
+          {epic && (
+            <span className="epic-chip" title={`Epic: ${epic.title}`}>
+              {epic.title}
+            </span>
+          )}
+          {issue.labels.slice(0, 3).map((l) => (
+            <span key={l} className="label-chip">
+              {l}
+            </span>
+          ))}
+          {issue.labels.length > 3 && <span className="label-chip">+{issue.labels.length - 3}</span>}
+        </div>
+      )}
+
       <footer className="card-footer">
-        <TypeIcon type={issue.type} />
-        <span className={`issue-key${done ? ' done' : ''}`}>{key}</span>
-        <span className="spacer" />
+        {!done && slack !== undefined && (
+          <span className={`slack${critical ? ' is-zero' : ''}`} title={critical ? 'On the critical path: any delay moves the ship date' : `Can slip ${slack} working days without moving the ship date`}>
+            {critical ? (
+              <>
+                <Icon name="flame" size={12} /> critical
+              </>
+            ) : (
+              `${slack}d slack`
+            )}
+          </span>
+        )}
         {issue.dueDate && !done && (
           <span className={`card-due${fc && fc.daysLate > 0 ? ' late' : ''}`} title="Due date">
             <Icon name="calendar" size={12} />
             {formatDate(issue.dueDate)}
           </span>
         )}
+        <span className="spacer" />
+        {impact > 0 && !done && (
+          <span className="unblocks" title={`Finishing this unblocks ${impact} issues`}>
+            <Icon name="zap" size={12} />
+            {impact}
+          </span>
+        )}
         <span className="estimate-pill" title="Estimate (days)">
-          {issue.estimate}
+          {issue.estimate}d
         </span>
-        <PriorityIcon priority={issue.priority} />
-        <Avatar user={assignee} size={24} />
+        <Avatar user={assignee} size={22} />
       </footer>
     </article>
   )

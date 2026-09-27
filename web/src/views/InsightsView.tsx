@@ -68,49 +68,54 @@ export function InsightsView() {
   return (
     <div className="view view-insights">
       <div className="insights-scroll">
-        <div className="kpis">
-          <Kpi label="If estimates hold" value={finish ? formatDate(finish) : 'Done'} sub={`${Math.ceil(a.remaining)} working days left`} />
-          <Kpi
-            label="85% confident by"
-            value={a.remaining > 0 ? formatDate(addWorkdays(origin, Math.ceil(d.confidence.p85) - 1)) : '—'}
-            sub={`${d.confidence.runs} simulated runs`}
-          />
-          <Kpi label="Open issues" value={open.length} sub={`${d.work.length - open.length} done`} />
-          <Kpi label="Blocked" value={a.blockedBy.size} tone={a.blockedBy.size ? 'danger' : undefined} icon="block" sub={`${a.ready.length} ready to start`} />
-          <Kpi label="At risk" value={a.atRisk.length} tone={a.atRisk.length ? 'danger' : undefined} icon="warning" sub="started while blocked" />
-          <Kpi label="Forecast late" value={late.length} tone={late.length ? 'danger' : undefined} icon="clock" sub="will miss due date" />
+        <div className="insights-hero">
+          <ShipDate />
+          <div className="kpis">
+            <Kpi label="Open issues" value={open.length} sub={`${d.work.length - open.length} done · ${a.ready.length} ready to start`} />
+            <Kpi label="Blocked" value={a.blockedBy.size} tone={a.blockedBy.size ? 'danger' : undefined} icon="block" sub="waiting on open work" />
+            <Kpi label="At risk" value={a.atRisk.length} tone={a.atRisk.length ? 'danger' : undefined} icon="warning" sub="started while blocked" />
+            <Kpi label="Forecast late" value={late.length} tone={late.length ? 'danger' : undefined} icon="clock" sub="will miss their due date" />
+          </div>
         </div>
 
         <section className="panel panel-wide">
           <header>
             <h3>
-              <Icon name="flame" size={16} className="text-critical" /> Critical path
+              <Icon name="route" size={16} className="text-critical" /> Critical path
             </h3>
-            <p className="muted">The longest chain of dependent work. Any slip here moves the finish date; everything else has slack.</p>
+            <p className="muted">The longest chain of dependent work. Any slip on this line moves the ship date; everything off it has slack.</p>
           </header>
           {a.criticalPath.length ? (
-            <div className="cp-chain">
-              {a.criticalPath.map((id, k) => {
+            <ol className="cp-line">
+              {a.criticalPath.map((id) => {
                 const i = d.issueMap.get(id)!
                 const fc = d.forecasts.get(id)!
+                const started = d.category(i) === 'in_progress'
                 return (
-                  <div key={id} className="cp-step">
-                    {k > 0 && <Icon name="arrow-right" size={16} className="cp-arrow" />}
-                    <button className="cp-node" onClick={() => openIssue(key(i))}>
+                  <li key={id} className={`cp-stop${started ? ' is-started' : ''}`}>
+                    <button onClick={() => openIssue(key(i))} title={i.title}>
+                      <span className="cp-when">{formatDate(fc.finish)}</span>
+                      <span className="cp-dot" />
                       <span className="cp-top">
-                        <TypeIcon type={i.type} size={14} />
                         <span className="issue-key">{key(i)}</span>
                         <Avatar user={i.assigneeId ? d.memberMap.get(i.assigneeId) : null} size={18} />
                       </span>
                       <span className="cp-title">{i.title}</span>
                       <span className="muted small">
-                        {i.estimate}d · done {formatDate(fc.finish)}
+                        {i.estimate}d{started ? ' · in progress' : ''}
                       </span>
                     </button>
-                  </div>
+                  </li>
                 )
               })}
-            </div>
+              <li className="cp-stop cp-end">
+                <span className="cp-when">{finish ? formatDate(finish) : ''}</span>
+                <span className="cp-dot" />
+                <span className="cp-top">
+                  <Icon name="target" size={14} /> Ship
+                </span>
+              </li>
+            </ol>
           ) : (
             <p className="muted">Nothing left to schedule.</p>
           )}
@@ -287,6 +292,96 @@ export function InsightsView() {
         )}
       </div>
     </div>
+  )
+}
+
+/** The headline: the ship date if estimates hold, and the spread of 1000 simulated runs around it. */
+function ShipDate() {
+  const d = useProject()
+  const a = d.analysis
+  const c = d.confidence
+  const origin = nextWorkday(new Date())
+  const at = (days: number) => addWorkdays(origin, Math.max(1, Math.ceil(days)) - 1)
+  if (a.remaining <= 0)
+    return (
+      <section className="ship">
+        <span className="eyebrow">Ships</span>
+        <b className="ship-date">Done</b>
+        <p className="muted">Nothing left open on this project.</p>
+      </section>
+    )
+
+  // Due date of the project: the latest due date on any open issue, if there is one.
+  const dues = d.work.filter((i) => i.dueDate && d.category(i) !== 'done').map((i) => i.dueDate!)
+  const due = dues.length ? dues.sort().at(-1)! : null
+  const dueDay = due ? workdaysBetween(origin, parseDate(due)) + 1 : null
+
+  const h = c.histogram
+  const W = 460
+  const H = 120
+  const maxDay = Math.max(h.length - 1, Math.ceil(c.p95) + 1, dueDay ?? 0)
+  const minDay = Math.max(0, Math.min(Math.ceil(a.remaining) - 2, h.findIndex((n) => n > 0) - 1, (dueDay ?? Infinity) - 1))
+  const span = Math.max(1, maxDay - minDay)
+  const peak = Math.max(1, ...h)
+  const x = (day: number) => ((day - minDay) / span) * W
+  const y = (n: number) => H - 4 - (n / peak) * (H - 16)
+  const pts = Array.from({ length: span + 1 }, (_, k) => [x(minDay + k), y(h[minDay + k] ?? 0)] as const)
+  const line = pts.map(([px, py], k) => `${k ? 'L' : 'M'}${px.toFixed(1)},${py.toFixed(1)}`).join('')
+  const area = `${line}L${W},${H}L0,${H}Z`
+  const marks = [
+    { day: Math.ceil(c.p50), label: '50%' },
+    { day: Math.ceil(c.p85), label: '85%' },
+    { day: Math.ceil(c.p95), label: '95%' },
+  ]
+  const late = dueDay !== null && Math.ceil(c.p85) > dueDay
+
+  return (
+    <section className="ship">
+      <div className="ship-copy">
+        <span className="eyebrow">
+          <Icon name="target" size={13} /> Ships
+        </span>
+        <b className="ship-date">{formatDate(at(a.remaining))}</b>
+        <p className="ship-sub">
+          if every estimate holds · <b>{Math.ceil(a.remaining)}</b> working days
+        </p>
+        <div className="ship-odds">
+          {marks.map((m) => (
+            <span key={m.label} className={m.label === '85%' ? 'is-key' : ''}>
+              <b>{formatDate(at(m.day))}</b>
+              <span>{m.label} likely</span>
+            </span>
+          ))}
+        </div>
+        {due && (
+          <p className={`ship-due${late ? ' is-late' : ''}`}>
+            {late ? <Icon name="warning" size={13} /> : <Icon name="check-circle" size={13} />}
+            Due {formatDate(due)} · {Math.round((h.slice(0, (dueDay ?? 0) + 1).reduce((s, n) => s + n, 0) / c.runs) * 100)}% of runs make it
+          </p>
+        )}
+      </div>
+      <svg className="ship-curve" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Simulated finish dates: 50% by ${formatDate(at(c.p50))}, 85% by ${formatDate(at(c.p85))}`}>
+        <defs>
+          <linearGradient id="ship-fill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stopColor="var(--accent)" stopOpacity=".35" />
+            <stop offset="1" stopColor="var(--accent)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={area} fill="url(#ship-fill)" />
+        <path d={line} fill="none" stroke="var(--accent)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+        {marks.map((m) => (
+          <line key={m.label} x1={x(m.day)} x2={x(m.day)} y1={6} y2={H} className={`ship-mark${m.label === '85%' ? ' is-key' : ''}`} vectorEffect="non-scaling-stroke" />
+        ))}
+        {dueDay !== null && dueDay >= minDay && (
+          <line x1={x(dueDay)} x2={x(dueDay)} y1={0} y2={H} className="ship-due-line" vectorEffect="non-scaling-stroke" />
+        )}
+      </svg>
+      <p className="ship-foot muted small">
+        {c.runs.toLocaleString()} simulated runs with realistic overruns
+        {' · dotted lines at 50 / 85 / 95%'}
+        {dueDay !== null && ' · coral line is the due date'}
+      </p>
+    </section>
   )
 }
 

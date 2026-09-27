@@ -16,6 +16,8 @@ export interface Confidence {
   onTime: Map<string, number>
   /** 85th-percentile finish (working days from today) per task. */
   p85ById: Map<string, number>
+  /** How many runs finished on each working day from today (index = days, rounded up). */
+  histogram: number[]
   runs: number
 }
 
@@ -114,5 +116,11 @@ export function simulateConfidence(
     if (dueCol[k] >= 0) onTime.set(id, hits[k] / runs)
     p85ById.set(id, percentile(perTask[k].sort((a, b) => a - b), 0.85))
   })
-  return { p50: percentile(totals, 0.5), p85: percentile(totals, 0.85), p95: percentile(totals, 0.95), onTime, p85ById, runs }
+  const histogram: number[] = []
+  for (const t of totals) {
+    const day = Math.ceil(t)
+    while (histogram.length <= day) histogram.push(0)
+    histogram[day]++
+  }
+  return { p50: percentile(totals, 0.5), p85: percentile(totals, 0.85), p95: percentile(totals, 0.95), onTime, p85ById, histogram, runs }
 }

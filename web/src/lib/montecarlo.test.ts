@@ -30,6 +30,14 @@ describe('simulateConfidence', () => {
     expect(loose.onTime.get('b')).toBe(1)
   })
 
+  it('buckets every run into a finish-day histogram', () => {
+    const c = simulateConfidence(nodes, a, new Map(), () => [1, 2], 400, MON)
+    expect(c.histogram.reduce((s, n) => s + n, 0)).toBe(400)
+    // Nothing can finish before the point estimate when work only overruns.
+    expect(c.histogram.slice(0, 8).every((n) => n === 0)).toBe(true)
+    expect(simulateConfidence(nodes, a, new Map(), () => [1, 1], 50, MON).histogram[8]).toBe(50)
+  })
+
   it('is deterministic for the same plan', () => {
     const spread = () => [0.8, 1.8] as [number, number]
     expect(simulateConfidence(nodes, a, new Map(), spread, 200, MON).p85).toBe(simulateConfidence(nodes, a, new Map(), spread, 200, MON).p85)
