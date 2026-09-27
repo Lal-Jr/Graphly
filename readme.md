@@ -1,40 +1,67 @@
 # Graphly
 
-A graph-driven Kanban board for software teams. Tasks live on a board, but every task is also a node in a dependency graph — so Graphly can tell you what's blocked, what's holding everyone up, and which chain of work decides your ship date.
+Graphly is a Jira-style issue tracker that treats your plan as a **dependency graph**. Every "blocks / is blocked by" link feeds a scheduling engine, so the board always knows what's blocked, what's holding everyone up, and — from estimates and dependencies alone — when things will actually finish.
 
-## Features
+## What it does
 
-- **Kanban board** — drag cards between Backlog / To Do / In Progress / Review / Done. Hover a card to light up everything upstream (amber) and downstream (indigo) of it.
-- **Dependency graph** — auto-laid-out DAG (dagre). Drag from a node's right handle to another node to add a dependency; select an edge and press Backspace to remove it. Cycles are rejected.
-- **Blocker detection** — tasks with open dependencies are flagged, "Top blockers" ranks open tasks by how many downstream tasks they transitively hold up, and work started on a still-blocked task is flagged **at risk**.
-- **Critical path** — critical path method (CPM) over open tasks using estimates: remaining project duration, per-task earliest start/finish and slack, and the critical chain highlighted on both views.
-- **Real-time collaboration** — the board is a [Yjs](https://yjs.dev) CRDT synced peer-to-peer over WebRTC (and instantly between tabs), with live presence showing who's viewing which task. Changes persist locally in IndexedDB. Concurrent edits that merge into a cycle are detected and surfaced.
-- **Undo / redo** — `⌘Z` / `⇧⌘Z`. `g` toggles board/graph, `i` toggles insights.
+**The Jira basics:** workspaces and projects with issue keys (`APL-42`), stories / tasks / bugs / epics, a configurable workflow, a Kanban board with swimlanes (by assignee or epic) and drag-and-drop, a sortable list view, an issue view with comments and full history, labels, priorities, due dates, filters, a ⌘K command palette, invite links with admin and member roles, and light / dark / system themes.
 
-## Getting started
+**Things Jira doesn't do:**
+
+| | |
+|---|---|
+| **Forecast dates** | Every open issue gets a start and finish date computed by the critical path method over working days. Epics roll up to the finish of their last child. |
+| **Forecast timeline** | An auto-scheduled Gantt chart: bars, slack and due-date markers are derived from dependencies, not dragged by hand. |
+| **What-if simulation** | "If APL-9 slips 3 days…" shows the new project finish, every issue that shifts, and which due dates newly get missed. |
+| **Critical path** | The chain that decides your ship date is highlighted across the board, graph and timeline. Every issue shows its slack. |
+| **Blocker intelligence** | Blockers are ranked by how many issues they transitively hold up. "At risk" flags work started while its blockers are still open, and "stale blockers" flags blocking issues nobody has touched in days. |
+| **Late before it's late** | Issues whose *forecast* lands after their due date are flagged now, not on the day. |
+| **People & bottlenecks** | Load per person, split into critical-path and other work, plus a suggested next task for each person: unblocked, critical first, then biggest impact. |
+| **Unblock notifications** | Closing the last blocker writes "unblocked by APL-5" into the waiting issue's history. |
+| **Dependency graph** | A live DAG you can edit by dragging between nodes. Cycles are rejected both in the UI and, transactionally, on the server. |
+| **Safe concurrent edits** | Live presence shows who's viewing and who's typing. Title and description saves use compare-and-swap, so a simultaneous edit shows a conflict instead of silently overwriting. |
+
+## Architecture
+
+```
+web/      React + TypeScript (Vite). Graph engine and forecasting run client-side.
+server/   Go (net/http, pgx, coder/websocket). Postgres is the source of truth.
+```
+
+- **Realtime:** every write records an event in an outbox table inside the same transaction, then `pg_notify`s its id. Every server instance `LISTEN`s, so the architecture supports more than one instance (only a single instance has been run so far). Clients resume from their last sequence number after a disconnect, and the server asks them to reload if the gap is older than the 24-hour retention window.
+- **Integrity:** adding a dependency locks the project row and checks reachability with a recursive CTE, so two people linking A→B and B→A at the same moment can't create a cycle. `TestConcurrentOppositeLinks` covers this case.
+- **Auth:** bcrypt passwords and random 256-bit session tokens, stored hashed, in an `HttpOnly`, `SameSite=Lax` cookie. State-changing requests require JSON and a same-origin `Origin` header. Login is rate-limited per IP. Access is enforced per workspace on every route and WebSocket.
+
+## Development
+
+Prerequisites: Go 1.26+, Node 22+, Postgres 15+.
 
 ```sh
-npm install
-npm run dev     # http://localhost:5173
-npm test        # graph engine unit tests
-npm run build
+createdb graphly
+
+# API on :8080 (runs migrations on boot)
+cd server && go run .
+
+# Frontend on :5173, proxying /api to the Go server
+cd web && npm install && npm run dev
 ```
 
-Each board is a room identified by the URL hash (`#room=…`). Click **Share** to copy the link — anyone who opens it joins the same board.
+If port 8080 is taken, run the server with `ADDR=:8090` and the frontend with `GRAPHLY_API=http://localhost:8090 npm run dev`. See `.env.example` for all settings. When you create a project, tick **Include a sample plan** to get an 18-issue launch with a due date that's already at risk.
 
-### Signaling
-
-WebRTC peers find each other through y-webrtc's public signaling servers by default. For anything beyond a demo, run your own (`npx y-webrtc-signaling`, port 4444) and point Graphly at it:
+### Tests
 
 ```sh
-VITE_SIGNALING=wss://signal.example.com npm run build
+createdb graphly_test
+cd server && go test -race ./...   # API, auth, realtime, concurrency (needs Postgres; wipes graphly_test)
+cd web && npm test                 # graph engine + forecasting
 ```
 
-## Structure
+## Deploying
 
+The `Dockerfile` builds a single distroless image: the Go binary serves the API, WebSockets and the built SPA.
+
+```sh
+docker compose up --build     # Postgres + Graphly on http://localhost:8080
 ```
-src/lib/graph.ts        cycle detection, blockers, CPM (pure, tested)
-src/store/doc.ts        Yjs document, providers, presence, mutations
-src/store/context.tsx   React bindings (useSyncExternalStore)
-src/components/         BoardView, GraphView, TaskEditor, Insights
-```
+
+For a real deployment, point `DATABASE_URL` at managed Postgres, serve over HTTPS, and set `SECURE_COOKIES=true`. Any container host works (Fly.io, Render, Railway, ECS, and so on).

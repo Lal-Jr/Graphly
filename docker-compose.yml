@@ -1,0 +1,29 @@
+# Local production-like stack: Postgres + Graphly on http://localhost:8080
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: graphly
+      POSTGRES_PASSWORD: graphly
+      POSTGRES_DB: graphly
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U graphly']
+      interval: 2s
+      retries: 20
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgres://graphly:graphly@db:5432/graphly?sslmode=disable
+      # Set to true when serving over HTTPS (required for real deployments).
+      SECURE_COOKIES: 'false'
+    ports:
+      - '8080:8080'
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

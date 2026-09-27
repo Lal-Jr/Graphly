@@ -1,0 +1,7 @@
+{
+  "_comment": "Throwaway accounts for local development only (e.g. against a localhost database). Never reuse these anywhere real.",
+  "accounts": [
+    { "name": "Priya Raman", "email": "priya@graphly.test", "password": "bPEXPpqVG7Rll" },
+    { "name": "Marco Silva", "email": "marco@graphly.test", "password": "wMeH4HEXjDE2Xh" }
+  ]
+}
