@@ -2,7 +2,7 @@
 #   fly secrets set DATABASE_URL='postgres://...?sslmode=require'
 # Use a direct (non-pooled) connection: the realtime hub relies on LISTEN/NOTIFY.
 app = "graphly"
-primary_region = "bom"
+primary_region = "sin"
 
 [build]
   dockerfile = "Dockerfile"

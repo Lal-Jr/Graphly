@@ -2,6 +2,8 @@
 
 Graphly is a Jira-style issue tracker that treats your plan as a **dependency graph**. Every "blocks / is blocked by" link feeds a scheduling engine, so the board always knows what's blocked, what's holding everyone up, and — from estimates and dependencies alone — when things will actually finish.
 
+**Live:** [graphly.fly.dev](https://graphly.fly.dev) — click *Explore the demo* to try it without signing up.
+
 ## What it does
 
 **The Jira basics:** workspaces and projects with issue keys (`APL-42`), stories / tasks / bugs / epics, a configurable workflow, a Kanban board with swimlanes (by assignee or epic) and drag-and-drop, a sortable list view, an issue view with comments and full history, labels, priorities, due dates, filters, a ⌘K command palette, invite links with admin and member roles, and light / dark / system themes.
