@@ -1,0 +1,30 @@
+# Fly.io config. The database lives outside Fly; set it with:
+#   fly secrets set DATABASE_URL='postgres://...?sslmode=require'
+# Use a direct (non-pooled) connection: the realtime hub relies on LISTEN/NOTIFY.
+app = "graphly"
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  SECURE_COOKIES = "true"
+  CLIENT_IP_HEADER = "Fly-Client-IP"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"
+  method = "GET"
+  path = "/api/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
