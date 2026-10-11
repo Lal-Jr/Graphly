@@ -267,6 +267,9 @@ func (s *Server) createIssue(w http.ResponseWriter, r *http.Request, u *User) er
 		if err := logActivity(ctx, tx, projectID, &is.ID, u.ID, "created", map[string]any{}); err != nil {
 			return err
 		}
+		if err := s.syncLifecycle(ctx, tx, []string{is.ID}); err != nil {
+			return err
+		}
 		return ok(w, is)
 	})
 }
@@ -361,6 +364,11 @@ func (s *Server) updateIssue(w http.ResponseWriter, r *http.Request, u *User) er
 				data["from"], data["to"] = before.Title, is.Title
 			}
 			if err := logActivity(ctx, tx, projectID, &is.ID, u.ID, "updated", data); err != nil {
+				return err
+			}
+		}
+		if slices.Contains(changed, "status") || slices.Contains(changed, "estimate") || slices.Contains(changed, "type") {
+			if err := s.syncLifecycle(ctx, tx, []string{is.ID}); err != nil {
 				return err
 			}
 		}

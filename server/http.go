@@ -34,6 +34,12 @@ func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) *Server {
 	if cfg.ForecastLocation == nil {
 		cfg.ForecastLocation = time.UTC
 	}
+	if cfg.CalibrationMinIssues == 0 {
+		cfg.CalibrationMinIssues = 20
+	}
+	if cfg.CalibrationMinPerType == 0 {
+		cfg.CalibrationMinPerType = 5
+	}
 	return &Server{db: db, hub: hub, cfg: cfg, login: newRateLimiter(10, time.Minute), demo: newRateLimiter(5, 10*time.Minute),
 		forecasts: newForecastCache(256)}
 }

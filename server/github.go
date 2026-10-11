@@ -307,5 +307,8 @@ func (s *Server) applyPR(ctx context.Context, tx pgx.Tx, projectID string, numbe
 	}); err != nil {
 		return false, err
 	}
+	if err := s.syncLifecycle(ctx, tx, []string{issueID}); err != nil {
+		return false, err
+	}
 	return true, s.noteUnblocked(ctx, tx, projectID, before, after, nil)
 }

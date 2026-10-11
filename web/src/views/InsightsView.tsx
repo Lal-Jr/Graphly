@@ -377,11 +377,29 @@ function ShipDate() {
         )}
       </svg>
       <p className="ship-foot muted small">
-        {c.runs.toLocaleString()} simulated runs with realistic overruns
+        {c.runs.toLocaleString()} simulated runs with <OverrunModel />
         {' · dotted lines at 50 / 85 / 95%'}
         {dueDay !== null && ' · coral line is the due date'}
       </p>
     </section>
+  )
+}
+
+/** Says whether the simulation used generic overruns or ones learned from this project's finished work. */
+function OverrunModel() {
+  const cal = useProject().calibration
+  if (!cal) return <>realistic overruns</>
+  const detail = Object.entries(cal.byType)
+    .map(([type, t]) => `${type}s: ${t.spread[0]}–${t.spread[1]}× estimate (${t.source === 'type' ? `from ${t.samples} finished` : t.source === 'pooled' ? 'project-wide range' : 'default'}${t.median ? `, typically ${t.median}×` : ''})`)
+    .join('\n')
+  return cal.source === 'calibrated' ? (
+    <span className="overrun-model is-calibrated" title={detail}>
+      <Icon name="check-circle" size={12} /> overruns calibrated from {cal.samples} finished issues
+    </span>
+  ) : (
+    <span className="overrun-model" title={`${detail}\n\nCalibrates from this project's history after ${cal.threshold} finished, estimated issues.`}>
+      default overruns ({cal.samples}/{cal.threshold} finished issues to calibrate)
+    </span>
   )
 }
 

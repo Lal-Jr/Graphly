@@ -126,3 +126,43 @@ export const PRIORITIES: Priority[] = ['highest', 'high', 'medium', 'low', 'lowe
 export const TYPE_LABEL: Record<IssueType, string> = { story: 'Story', task: 'Task', bug: 'Bug', epic: 'Epic' }
 export const PRIORITY_LABEL: Record<Priority, string> = { lowest: 'Lowest', low: 'Low', medium: 'Medium', high: 'High', highest: 'Highest' }
 export const PRIORITY_WEIGHT: Record<Priority, number> = { lowest: 0, low: 1, medium: 2, high: 3, highest: 4 }
+
+export interface TypeCalibration {
+  source: 'type' | 'pooled' | 'default'
+  samples: number
+  spread: [number, number]
+  median: number
+}
+
+/** The overrun model a forecast used: the generic defaults, or ranges learned from the project's own history. */
+export interface Calibration {
+  source: 'default' | 'calibrated'
+  samples: number
+  threshold: number
+  spreads: Record<string, [number, number]>
+  byType: Record<string, TypeCalibration>
+}
+
+export interface EstimateQuality {
+  openIssues: number
+  unestimated: number
+  /** Share of open issues with no estimate (0–1). */
+  share: number
+  confidence: 'high' | 'medium' | 'low'
+}
+
+/** The server's forecast (GET /projects/:id/forecast). Dates are YYYY-MM-DD. */
+export interface ServerForecast {
+  computedAt: string
+  today: string
+  seed: number
+  remaining: number
+  finish: string | null
+  finishP85: string | null
+  p50: number
+  p85: number
+  p95: number
+  spreads: Record<string, [number, number]>
+  calibration: Calibration | null
+  quality: EstimateQuality | null
+}

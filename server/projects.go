@@ -340,6 +340,14 @@ func (s *Server) updateStatus(w http.ResponseWriter, r *http.Request, u *User) e
 			if _, err := tx.Exec(r.Context(), `UPDATE statuses SET category = $2 WHERE id = $1`, id, *body.Category); err != nil {
 				return err
 			}
+			// Every issue in this column just changed category.
+			ids, err := collect(scanString)(tx.Query(r.Context(), `SELECT id FROM issues WHERE status_id = $1`, id))
+			if err != nil {
+				return err
+			}
+			if err := s.syncLifecycle(r.Context(), tx, ids); err != nil {
+				return err
+			}
 		}
 		if body.Position != nil {
 			// Re-number the whole workflow with this status moved to the requested index.
@@ -403,10 +411,15 @@ func (s *Server) deleteStatus(w http.ResponseWriter, r *http.Request, u *User) e
 			if len(moved) != inUse {
 				return badRequest("unknown target status")
 			}
-			for _, is := range moved {
+			ids := make([]string, len(moved))
+			for k, is := range moved {
+				ids[k] = is.ID
 				if err := publish(r.Context(), tx, projectID, "issue.upsert", map[string]any{"issue": is}); err != nil {
 					return err
 				}
+			}
+			if err := s.syncLifecycle(r.Context(), tx, ids); err != nil {
+				return err
 			}
 		}
 		if _, err := tx.Exec(r.Context(), `DELETE FROM statuses WHERE id = $1`, id); err != nil {

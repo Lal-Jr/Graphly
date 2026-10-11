@@ -29,6 +29,10 @@ type Config struct {
 	// The timezone "today" is decided in for forecasts, and how often the background job runs.
 	ForecastLocation *time.Location
 	ForecastInterval time.Duration
+	// A project's overruns are calibrated from its own history once it has this many finished,
+	// estimated issues; each type needs this many of its own, or it uses the project-wide range.
+	CalibrationMinIssues  int
+	CalibrationMinPerType int
 }
 
 func loadConfig() Config {
@@ -51,6 +55,8 @@ func loadConfig() Config {
 	}
 	cfg.ForecastLocation = loc
 	cfg.ForecastInterval = envDuration("FORECAST_INTERVAL", 15*time.Minute)
+	cfg.CalibrationMinIssues = envInt("CALIBRATION_MIN_ISSUES", 20)
+	cfg.CalibrationMinPerType = envInt("CALIBRATION_MIN_PER_TYPE", 5)
 	for _, o := range strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",") {
 		if o = strings.TrimSpace(o); o != "" {
 			cfg.AllowedOrigins = append(cfg.AllowedOrigins, o)

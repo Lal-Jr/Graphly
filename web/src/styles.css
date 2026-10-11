@@ -4186,3 +4186,16 @@ select.field-input {
 .issue-table th.num {
   font-size: 10.5px;
 }
+
+/* ---- forecast model & estimate quality ---- */
+.overrun-model {
+  border-bottom: 1px dotted currentColor;
+  cursor: help;
+}
+.overrun-model.is-calibrated {
+  color: var(--accent-bright);
+  border-bottom-color: transparent;
+}
+.overrun-model svg {
+  vertical-align: -2px;
+}

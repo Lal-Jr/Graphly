@@ -5,9 +5,10 @@ import { simulateConfidence } from './montecarlo'
 const MON = new Date(2025, 9, 6)
 const node = (id: string, estimate: number, dependsOn: string[] = []): GraphNode => ({ id, estimate, state: 'todo', dependsOn })
 
+const nodes = [node('a', 4), node('b', 4, ['a']), node('c', 1)]
+const a = analyze(nodes)
+
 describe('simulateConfidence', () => {
-  const nodes = [node('a', 4), node('b', 4, ['a']), node('c', 1)]
-  const a = analyze(nodes)
 
   it('is never more optimistic than the point estimate when work only overruns', () => {
     const c = simulateConfidence(nodes, a, new Map(), () => [1, 2], 500, MON)
@@ -41,5 +42,21 @@ describe('simulateConfidence', () => {
   it('is deterministic for the same plan', () => {
     const spread = () => [0.8, 1.8] as [number, number]
     expect(simulateConfidence(nodes, a, new Map(), spread, 200, MON).p85).toBe(simulateConfidence(nodes, a, new Map(), spread, 200, MON).p85)
+  })
+})
+
+describe('spreadFrom', () => {
+  it('uses a calibrated table, falling back to the task range for unknown types', async () => {
+    const { spreadFrom, DEFAULT_SPREADS } = await import('./montecarlo')
+    const types: Record<string, string> = { a: 'bug', b: 'epic' }
+    const s = spreadFrom((id) => types[id], { ...DEFAULT_SPREADS, bug: [1, 3] })
+    expect(s('a')).toEqual([1, 3])
+    expect(s('b')).toEqual(DEFAULT_SPREADS.task)
+    expect(s('missing')).toEqual(DEFAULT_SPREADS.task)
+  })
+  it('takes an explicit seed and reports it', () => {
+    const c = simulateConfidence(nodes, a, new Map(), () => [0.8, 1.8], 100, MON, 1234)
+    expect(c.seed).toBe(1234)
+    expect(simulateConfidence(nodes, a, new Map(), () => [0.8, 1.8], 100, MON, 1234).histogram).toEqual(c.histogram)
   })
 })

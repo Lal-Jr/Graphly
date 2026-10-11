@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { analyze, type Analysis, type GraphNode } from '../lib/graph'
 import { forecast, type Forecast } from '../lib/forecast'
-import { defaultSpread, simulateConfidence, type Confidence } from '../lib/montecarlo'
-import type { Category, Issue, Member, Status } from '../types'
+import { DEFAULT_SPREADS, simulateConfidence, spreadFrom, type Confidence, type SpreadTable } from '../lib/montecarlo'
+import { api } from '../api'
+import type { Calibration, Category, Issue, Member, ServerForecast, Status } from '../types'
 import { useToast } from '../ui/toast'
 import { ProjectStore, type ProjectState } from './project'
 
@@ -26,6 +27,8 @@ export interface ProjectData extends ProjectState {
   dueDates: Map<string, string | null>
   /** Monte Carlo confidence over the same plan. */
   confidence: Confidence
+  /** The overrun model in use: the server's calibration from this project's history, once loaded. */
+  calibration: Calibration | null
 }
 
 const Ctx = createContext<ProjectData | null>(null)
@@ -43,11 +46,32 @@ export function ProjectProvider({ projectId, children }: { projectId: string; ch
   }, [projectId])
 
   const state = useSyncExternalStore(store.subscribe, store.getState)
-  const data = useMemo(() => derive(store, state), [store, state])
+  const server = useServerForecast(projectId, state)
+  const data = useMemo(() => derive(store, state, server), [store, state, server])
   return <Ctx.Provider value={data}>{children}</Ctx.Provider>
 }
 
-function derive(store: ProjectStore, s: ProjectState): ProjectData {
+/**
+ * The server owns the overrun model (it's calibrated from the project's finished work), so fetch
+ * its forecast once the project loads and again shortly after the plan changes. The browser keeps
+ * running the engine itself for instant feedback, with the server's spreads.
+ */
+function useServerForecast(projectId: string, s: ProjectState) {
+  const [server, setServer] = useState<ServerForecast | null>(null)
+  const ready = s.phase === 'ready'
+  const version = ready ? `${s.issues.length}:${s.links.length}:${s.issues.reduce((n, i) => n + i.version, 0)}` : ''
+  useEffect(() => {
+    if (!ready) return
+    const t = setTimeout(() => {
+      api.get<ServerForecast>(`/projects/${projectId}/forecast?issues=false`).then(setServer, () => {})
+    }, server ? 1500 : 0)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, ready, version])
+  return server
+}
+
+function derive(store: ProjectStore, s: ProjectState, server: ServerForecast | null): ProjectData {
   const statusMap = new Map(s.statuses.map((st) => [st.id, st]))
   const issueMap = new Map(s.issues.map((i) => [i.id, i]))
   const memberMap = new Map(s.members.map((m) => [m.id, m]))
@@ -75,14 +99,15 @@ function derive(store: ProjectStore, s: ProjectState): ProjectData {
   }))
   const dueDates = new Map(work.map((i) => [i.id, i.dueDate]))
   // Presence and comment events also change state; only re-plan when the plan itself changed.
-  const planKey = JSON.stringify([nodes, [...dueDates], work.map((i) => i.type)])
+  const spreads: SpreadTable = { ...DEFAULT_SPREADS, ...server?.spreads }
+  const planKey = JSON.stringify([nodes, [...dueDates], work.map((i) => i.type), spreads])
   if (planKey !== planCache.key) {
     const analysis = analyze(nodes)
     const types = new Map(work.map((i) => [i.id, i.type]))
     planCache.key = planKey
     planCache.analysis = analysis
     planCache.forecasts = forecast(analysis, dueDates)
-    planCache.confidence = simulateConfidence(nodes, analysis, dueDates, defaultSpread((id) => types.get(id)))
+    planCache.confidence = simulateConfidence(nodes, analysis, dueDates, spreadFrom((id) => types.get(id), spreads))
   }
   const { analysis, forecasts, confidence } = planCache
   const byNumber = new Map(s.issues.map((i) => [i.number, i]))
@@ -110,6 +135,7 @@ function derive(store: ProjectStore, s: ProjectState): ProjectData {
     forecasts,
     dueDates,
     confidence,
+    calibration: server?.calibration ?? null,
   }
 }
 
