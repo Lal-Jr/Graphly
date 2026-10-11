@@ -39,6 +39,9 @@ func newTestApp(t *testing.T, configure func(*Config)) (*httptest.Server, *Serve
 		err = pool.Ping(ctx)
 	}
 	if err != nil {
+		if os.Getenv("GRAPHLY_REQUIRE_DB") != "" {
+			t.Fatalf("no test database (GRAPHLY_REQUIRE_DB is set): %v", err)
+		}
 		t.Skipf("no test database: %v", err)
 	}
 	t.Cleanup(pool.Close)

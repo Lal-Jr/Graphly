@@ -25,6 +25,16 @@ type Config struct {
 	// on a private METRICS_ADDR (e.g. :9090) that isn't exposed publicly.
 	MetricsToken, MetricsAddr string
 
+	// Rate limits (per instance): writes per user per minute, imports per user per hour, webhook
+	// deliveries per project per minute, unauthenticated requests per IP per minute.
+	WriteRateLimit, ImportRateLimit, WebhookRateLimit, PublicRateLimit int
+	// How long a rotated webhook secret keeps working (0 = the old one stops at once).
+	WebhookSecretGrace time.Duration
+	// Strict-Transport-Security max-age; 0 sends no HSTS header.
+	HSTSMaxAge time.Duration
+	// Refuse new issues (and imports) past this many per project.
+	MaxIssuesPerProject int
+
 	Addr          string
 	DatabaseURL   string
 	StaticDir     string
@@ -86,6 +96,18 @@ func loadConfig() Config {
 	cfg.SMTPHost, cfg.SMTPPort = os.Getenv("SMTP_HOST"), env("SMTP_PORT", "587")
 	cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom = os.Getenv("SMTP_USERNAME"), os.Getenv("SMTP_PASSWORD"), os.Getenv("SMTP_FROM")
 	cfg.APITokenRateLimit = envInt("API_TOKEN_RATE_LIMIT", 600)
+	cfg.WriteRateLimit = envInt("WRITE_RATE_LIMIT", 300)
+	cfg.ImportRateLimit = envInt("IMPORT_RATE_LIMIT", 20)
+	cfg.WebhookRateLimit = envInt("WEBHOOK_RATE_LIMIT", 600)
+	cfg.PublicRateLimit = envInt("PUBLIC_RATE_LIMIT", 120)
+	cfg.WebhookSecretGrace = envDuration("WEBHOOK_SECRET_GRACE", 24*time.Hour)
+	cfg.MaxIssuesPerProject = envInt("MAX_ISSUES_PER_PROJECT", 20000)
+	// HSTS only makes sense over HTTPS, which SECURE_COOKIES already asserts.
+	hsts := time.Duration(0)
+	if cfg.SecureCookies {
+		hsts = 365 * 24 * time.Hour
+	}
+	cfg.HSTSMaxAge = envDuration("HSTS_MAX_AGE", hsts)
 	cfg.DigestWindow = envDuration("NOTIFY_DIGEST_WINDOW", 2*time.Minute)
 	cfg.DeliveryPollInterval = envDuration("NOTIFY_POLL_INTERVAL", 5*time.Second)
 	cfg.DeliveryMaxAttempts = envInt("NOTIFY_MAX_ATTEMPTS", 8)
@@ -181,6 +203,10 @@ func main() {
 		Addr:              cfg.Addr,
 		Handler:           app.Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
+		// No ReadTimeout/WriteTimeout: they would also cut WebSockets, which keep the hijacked
+		// connection. Bodies are size-capped per handler instead.
+		IdleTimeout:    2 * time.Minute,
+		MaxHeaderBytes: 64 << 10,
 	}
 	go func() {
 		<-ctx.Done()

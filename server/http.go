@@ -34,6 +34,8 @@ type Server struct {
 	httpClient *http.Client
 	// Per-token request budget.
 	tokenLimit *rateLimiter
+	// Per user (writes, imports), per project (webhooks) and per IP (unauthenticated endpoints).
+	writeLimit, importLimit, webhookLimit, publicLimit *rateLimiter
 	// "METHOD /path" of every route an API token may call; must match openapi.yaml.
 	publicRoutes []string
 	// Configured sign-in providers by id (google, github).
@@ -66,9 +68,19 @@ func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) (s *Server) {
 	if cfg.DeliveryMaxAttempts == 0 {
 		cfg.DeliveryMaxAttempts = 8
 	}
+	for _, d := range []struct {
+		v   *int
+		def int
+	}{{&cfg.WriteRateLimit, 300}, {&cfg.ImportRateLimit, 20}, {&cfg.WebhookRateLimit, 600}, {&cfg.PublicRateLimit, 120}, {&cfg.MaxIssuesPerProject, 20000}} {
+		if *d.v == 0 {
+			*d.v = d.def
+		}
+	}
 	s = &Server{db: db, hub: hub, cfg: cfg, login: newRateLimiter(10, time.Minute), demo: newRateLimiter(5, 10*time.Minute),
 		forecasts: newForecastCache(256), mailer: newSMTPMailer(cfg), httpClient: outboundClient(), providers: oauthProviders(cfg),
-		tokenLimit: newRateLimiter(cfg.APITokenRateLimit, time.Minute)}
+		tokenLimit: newRateLimiter(cfg.APITokenRateLimit, time.Minute), writeLimit: newRateLimiter(cfg.WriteRateLimit, time.Minute),
+		importLimit: newRateLimiter(cfg.ImportRateLimit, time.Hour), webhookLimit: newRateLimiter(cfg.WebhookRateLimit, time.Minute),
+		publicLimit: newRateLimiter(cfg.PublicRateLimit, time.Minute)}
 	s.onForecast = s.forecastNotifications
 	return s
 }
@@ -207,8 +219,7 @@ func (s *Server) guard(w http.ResponseWriter, r *http.Request, next http.Handler
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-origin request rejected"})
 			return
 		}
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Referrer-Policy", "same-origin")
+		s.securityHeaders(w.Header())
 		next.ServeHTTP(w, r)
 	}
 }
@@ -227,6 +238,9 @@ func (s *Server) Routes() http.Handler {
 			if u.token != nil {
 				return errStatus(http.StatusForbidden, "API tokens can't use this endpoint")
 			}
+			if err := s.limitWrites(w, r, u); err != nil {
+				return err
+			}
 			return fn(w, r, u)
 		}))
 	}
@@ -241,6 +255,9 @@ func (s *Server) Routes() http.Handler {
 			if err := s.apiGate(w, r, u); err != nil {
 				return err
 			}
+			if err := s.limitWrites(w, r, u); err != nil {
+				return err
+			}
 			return fn(w, r, u)
 		}))
 	}
@@ -250,13 +267,13 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/health", s.readyz) // older name, kept for existing health checks
 	mux.HandleFunc("GET /metrics", s.metricsHandler(true))
 
-	h("POST /api/auth/signup", s.signup)
+	h("POST /api/auth/signup", s.public(s.signup))
 	h("POST /api/auth/login", s.loginHandler)
 	h("POST /api/auth/logout", s.logout)
 	h("POST /api/auth/demo", s.startDemo)
-	h("GET /api/auth/providers", s.listProviders)
-	h("GET /api/auth/oauth/{provider}/start", s.oauthStart)
-	h("GET /api/auth/oauth/{provider}/callback", s.oauthCallback)
+	h("GET /api/auth/providers", s.public(s.listProviders))
+	h("GET /api/auth/oauth/{provider}/start", s.public(s.oauthStart))
+	h("GET /api/auth/oauth/{provider}/callback", s.public(s.oauthCallback))
 	authed("GET /api/me/identities", s.listIdentities)
 	authed("DELETE /api/me/identities/{provider}", s.unlinkIdentity)
 	authed("PUT /api/me/password", s.setPassword)
@@ -274,7 +291,7 @@ func (s *Server) Routes() http.Handler {
 	authed("DELETE /api/workspaces/{ws}/members/{user}", s.removeMember)
 	authed("POST /api/workspaces/{ws}/invites", s.createInvite)
 	api("POST /api/workspaces/{ws}/import", s.importHandler)
-	h("GET /api/invites/{token}", s.previewInvite)
+	h("GET /api/invites/{token}", s.public(s.previewInvite))
 	authed("POST /api/invites/{token}/accept", s.acceptInvite)
 
 	api("GET /api/workspaces/{ws}/projects", s.listProjects)

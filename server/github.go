@@ -47,10 +47,15 @@ func (s *Server) githubStatus(w http.ResponseWriter, r *http.Request, u *User) e
 	if err := s.db.QueryRow(r.Context(), `SELECT github_secret IS NOT NULL FROM projects WHERE id = $1`, id).Scan(&enabled); err != nil {
 		return err
 	}
-	return ok(w, map[string]any{"enabled": enabled, "path": "/api/hooks/github/" + id})
+	until, err := hookPrevUntil(r.Context(), s.db, hookGitHub, id)
+	if err != nil {
+		return err
+	}
+	return ok(w, map[string]any{"enabled": enabled, "path": "/api/hooks/github/" + id, "previousValidUntil": until})
 }
 
-// enableGitHub (re)generates the webhook secret. It's shown once; regenerating invalidates the old one.
+// enableGitHub (re)generates the webhook secret. It's shown once; after regenerating, the old one
+// keeps working for WEBHOOK_SECRET_GRACE.
 func (s *Server) enableGitHub(w http.ResponseWriter, r *http.Request, u *User) error {
 	id, err := pathID(r, "id")
 	if err != nil {
@@ -61,15 +66,16 @@ func (s *Server) enableGitHub(w http.ResponseWriter, r *http.Request, u *User) e
 		return err
 	}
 	secret := randomToken(24)
+	var until *time.Time
 	if err := s.inTx(r.Context(), func(tx pgx.Tx) error {
-		if _, err := tx.Exec(r.Context(), `UPDATE projects SET github_secret = $2 WHERE id = $1`, id, secret); err != nil {
+		if until, err = s.rotateHookSecret(r.Context(), tx, hookGitHub, id, secret); err != nil {
 			return err
 		}
-		return s.audit(r.Context(), tx, wsID, u.ID, "webhook.github.rotate", "project", id, nil)
+		return s.audit(r.Context(), tx, wsID, u.ID, "webhook.github.rotate", "project", id, map[string]any{"previousValidUntil": until})
 	}); err != nil {
 		return err
 	}
-	return ok(w, map[string]any{"enabled": true, "secret": secret, "path": "/api/hooks/github/" + id})
+	return ok(w, map[string]any{"enabled": true, "secret": secret, "path": "/api/hooks/github/" + id, "previousValidUntil": until})
 }
 
 func (s *Server) disableGitHub(w http.ResponseWriter, r *http.Request, u *User) error {
@@ -82,7 +88,7 @@ func (s *Server) disableGitHub(w http.ResponseWriter, r *http.Request, u *User) 
 		return err
 	}
 	if err := s.inTx(r.Context(), func(tx pgx.Tx) error {
-		if _, err := tx.Exec(r.Context(), `UPDATE projects SET github_secret = NULL WHERE id = $1`, id); err != nil {
+		if err := disableHook(r.Context(), tx, hookGitHub, id); err != nil {
 			return err
 		}
 		return s.audit(r.Context(), tx, wsID, u.ID, "webhook.github.disable", "project", id, nil)
@@ -142,19 +148,22 @@ func (s *Server) githubWebhook(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	if err := s.limit(w, s.webhookLimit, "webhook", projectID); err != nil {
+		return err
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 5<<20))
 	if err != nil {
 		return badRequest("payload too large")
 	}
-	var secret *string
-	var key string
-	if err := s.db.QueryRow(r.Context(), `SELECT github_secret, key FROM projects WHERE id = $1`, projectID).Scan(&secret, &key); err != nil {
+	secret, prev, key, err := hookSecrets(r.Context(), s.db, hookGitHub, projectID)
+	if err != nil {
 		return err
 	}
 	if secret == nil {
 		return errNotFound
 	}
-	if !validSignature(*secret, body, r.Header.Get("X-Hub-Signature-256")) {
+	sig := r.Header.Get("X-Hub-Signature-256")
+	if !validSignature(*secret, body, sig) && (prev == nil || !validSignature(*prev, body, sig)) {
 		return errStatus(http.StatusUnauthorized, "bad signature")
 	}
 	switch r.Header.Get("X-GitHub-Event") {

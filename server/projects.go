@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -11,7 +12,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const maxProjectDescription = 10000
+const (
+	maxProjectDescription = 10000
+	maxStatuses           = 30
+)
 
 var projectKeyRe = regexp.MustCompile(`^[A-Z][A-Z0-9]{1,9}$`)
 
@@ -281,6 +285,13 @@ func (s *Server) createStatus(w http.ResponseWriter, r *http.Request, u *User) e
 	return s.inTx(r.Context(), func(tx pgx.Tx) error {
 		if _, err := s.projectRole(r.Context(), tx, projectID, u, roleAdmin); err != nil {
 			return err
+		}
+		var n int
+		if err := tx.QueryRow(r.Context(), `SELECT count(*) FROM statuses WHERE project_id = $1`, projectID).Scan(&n); err != nil {
+			return err
+		}
+		if n >= maxStatuses {
+			return badRequest(fmt.Sprintf("a workflow can have at most %d statuses", maxStatuses))
 		}
 		st := Status{ProjectID: projectID, Name: name, Category: body.Category}
 		// Slot it in after the last column of the same category, keeping the workflow in category order.

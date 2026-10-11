@@ -11,7 +11,10 @@ info:
 
     **Rate limits.** Each token gets `API_TOKEN_RATE_LIMIT` requests per minute (600 by default).
     Every response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`
-    (Unix seconds); over the limit you get `429` with `Retry-After`.
+    (Unix seconds); over the limit you get `429` with `Retry-After`. Writes (any non-GET request)
+    also count against your account's `WRITE_RATE_LIMIT` per minute (300 by default), shared with
+    the web app, and imports against `IMPORT_RATE_LIMIT` per hour (20). Limits are per server
+    instance.
 
     **Permissions.** Workspace roles are admin, member and viewer; a project can override someone's
     role there (admin, editor, viewer). Viewers can only read; editors change issues, links and

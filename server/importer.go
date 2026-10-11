@@ -123,6 +123,9 @@ func (s *Server) importHandler(w http.ResponseWriter, r *http.Request, u *User) 
 	if err := s.requireAdmin(r.Context(), wsID, u.ID); err != nil {
 		return err
 	}
+	if err := s.limit(w, s.importLimit, "import", u.ID); err != nil {
+		return err
+	}
 	p, format, err := parseExport(req.Source, []byte(req.Content))
 	if err != nil {
 		return err
@@ -254,6 +257,15 @@ func (s *Server) runImport(ctx context.Context, tx pgx.Tx, wsID, userID, source,
 		}
 		touched[im.issuePrj[id]] = true
 		ids = append(ids, id)
+	}
+	for pid := range touched {
+		var n int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM issues WHERE project_id = $1`, pid).Scan(&n); err != nil {
+			return nil, err
+		}
+		if n > s.cfg.MaxIssuesPerProject {
+			return nil, errStatus(http.StatusUnprocessableEntity, fmt.Sprintf("this import would give a project %d issues; the limit is %d", n, s.cfg.MaxIssuesPerProject))
+		}
 	}
 	if err := im.setParents(issues); err != nil {
 		return nil, err

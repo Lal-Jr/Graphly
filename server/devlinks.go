@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -273,10 +272,15 @@ func (s *Server) gitlabStatus(w http.ResponseWriter, r *http.Request, u *User) e
 	if err := s.db.QueryRow(r.Context(), `SELECT gitlab_secret IS NOT NULL FROM projects WHERE id = $1`, id).Scan(&enabled); err != nil {
 		return err
 	}
-	return ok(w, map[string]any{"enabled": enabled, "path": "/api/hooks/gitlab/" + id})
+	until, err := hookPrevUntil(r.Context(), s.db, hookGitLab, id)
+	if err != nil {
+		return err
+	}
+	return ok(w, map[string]any{"enabled": enabled, "path": "/api/hooks/gitlab/" + id, "previousValidUntil": until})
 }
 
-// enableGitLab (re)generates the token GitLab sends in X-Gitlab-Token. It's shown once.
+// enableGitLab (re)generates the token GitLab sends in X-Gitlab-Token. It's shown once; after
+// regenerating, the old one keeps working for WEBHOOK_SECRET_GRACE.
 func (s *Server) enableGitLab(w http.ResponseWriter, r *http.Request, u *User) error {
 	id, err := pathID(r, "id")
 	if err != nil {
@@ -287,15 +291,16 @@ func (s *Server) enableGitLab(w http.ResponseWriter, r *http.Request, u *User) e
 		return err
 	}
 	secret := randomToken(24)
+	var until *time.Time
 	if err := s.inTx(r.Context(), func(tx pgx.Tx) error {
-		if _, err := tx.Exec(r.Context(), `UPDATE projects SET gitlab_secret = $2 WHERE id = $1`, id, secret); err != nil {
+		if until, err = s.rotateHookSecret(r.Context(), tx, hookGitLab, id, secret); err != nil {
 			return err
 		}
-		return s.audit(r.Context(), tx, wsID, u.ID, "webhook.gitlab.rotate", "project", id, nil)
+		return s.audit(r.Context(), tx, wsID, u.ID, "webhook.gitlab.rotate", "project", id, map[string]any{"previousValidUntil": until})
 	}); err != nil {
 		return err
 	}
-	return ok(w, map[string]any{"enabled": true, "secret": secret, "path": "/api/hooks/gitlab/" + id})
+	return ok(w, map[string]any{"enabled": true, "secret": secret, "path": "/api/hooks/gitlab/" + id, "previousValidUntil": until})
 }
 
 func (s *Server) disableGitLab(w http.ResponseWriter, r *http.Request, u *User) error {
@@ -308,7 +313,7 @@ func (s *Server) disableGitLab(w http.ResponseWriter, r *http.Request, u *User) 
 		return err
 	}
 	if err := s.inTx(r.Context(), func(tx pgx.Tx) error {
-		if _, err := tx.Exec(r.Context(), `UPDATE projects SET gitlab_secret = NULL WHERE id = $1`, id); err != nil {
+		if err := disableHook(r.Context(), tx, hookGitLab, id); err != nil {
 			return err
 		}
 		return s.audit(r.Context(), tx, wsID, u.ID, "webhook.gitlab.disable", "project", id, nil)
@@ -358,19 +363,22 @@ func (s *Server) gitlabWebhook(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	if err := s.limit(w, s.webhookLimit, "webhook", projectID); err != nil {
+		return err
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 5<<20))
 	if err != nil {
 		return badRequest("payload too large")
 	}
-	var secret *string
-	var key string
-	if err := s.db.QueryRow(r.Context(), `SELECT gitlab_secret, key FROM projects WHERE id = $1`, projectID).Scan(&secret, &key); err != nil {
+	secret, prev, key, err := hookSecrets(r.Context(), s.db, hookGitLab, projectID)
+	if err != nil {
 		return err
 	}
 	if secret == nil {
 		return errNotFound
 	}
-	if subtle.ConstantTimeCompare([]byte(*secret), []byte(r.Header.Get("X-Gitlab-Token"))) != 1 {
+	got := r.Header.Get("X-Gitlab-Token")
+	if !constantTimeEqual(*secret, got) && (prev == nil || !constantTimeEqual(*prev, got)) {
 		return errStatus(http.StatusUnauthorized, "bad token")
 	}
 	switch r.Header.Get("X-Gitlab-Event") {

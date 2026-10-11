@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"regexp"
@@ -155,8 +156,10 @@ func (s *Server) applyFields(ctx context.Context, tx pgx.Tx, f issueFields, is *
 			return nil, err
 		}
 		if v != nil {
-			if _, err := time.Parse("2006-01-02", *v); err != nil || !dateRe.MatchString(*v) {
+			if d, err := time.Parse("2006-01-02", *v); err != nil || !dateRe.MatchString(*v) {
 				return nil, badRequest("due date must be YYYY-MM-DD")
+			} else if d.Year() < 1970 || d.Year() > 2200 {
+				return nil, badRequest("due date must be between 1970 and 2200")
 			}
 		}
 		mark("dueDate", !eqPtr(v, is.DueDate))
@@ -234,6 +237,13 @@ func (s *Server) createIssue(w http.ResponseWriter, r *http.Request, u *User) er
 		wsID, err := s.projectRole(ctx, tx, projectID, u, roleEditor)
 		if err != nil {
 			return err
+		}
+		var count int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM issues WHERE project_id = $1`, projectID).Scan(&count); err != nil {
+			return err
+		}
+		if count >= s.cfg.MaxIssuesPerProject {
+			return errStatus(http.StatusUnprocessableEntity, fmt.Sprintf("this project has reached the limit of %d issues", s.cfg.MaxIssuesPerProject))
 		}
 		is := Issue{ProjectID: projectID, Type: "task", Priority: "medium", Estimate: 1, ReporterID: &u.ID, Labels: []string{}}
 		// Defaults: first status, bottom of the backlog.

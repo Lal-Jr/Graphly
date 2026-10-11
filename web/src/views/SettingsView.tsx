@@ -384,7 +384,7 @@ const HOOKS = {
 function HookCard({ provider, isAdmin }: { provider: keyof typeof HOOKS; isAdmin: boolean }) {
   const d = useProject()
   const toast = useToast()
-  const [state, setState] = useState<{ enabled: boolean; path: string; secret?: string } | null>(null)
+  const [state, setState] = useState<{ enabled: boolean; path: string; secret?: string; previousValidUntil?: string | null } | null>(null)
   const id = d.project?.id
   const meta = HOOKS[provider]
   useEffect(() => {
@@ -425,6 +425,12 @@ function HookCard({ provider, isAdmin }: { provider: keyof typeof HOOKS; isAdmin
             <span className="small">{meta.settings}</span>
           </div>
           {state.secret && <p className="small text-warning">Copy the secret now. It won't be shown again.</p>}
+          {state.previousValidUntil && (
+            <p className="small muted">
+              The previous secret keeps working until {new Date(state.previousValidUntil).toLocaleString()}, so deliveries don't fail while
+              you update {meta.name}.
+            </p>
+          )}
           {isAdmin && (
             <div className="row">
               <Button size="sm" onClick={() => api.post<typeof state>(`/projects/${id}/${provider}`).then(setState)}>
