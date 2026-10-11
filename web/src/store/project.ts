@@ -32,6 +32,7 @@ type ServerEvent =
   | { type: 'statuses.update'; statuses: Status[] }
   | { type: 'project.update'; project: Project }
   | { type: 'project.delete'; id: string }
+  | { type: 'project.reload' }
   | { type: 'member.join'; member: Member }
   | { type: 'comment.add'; comment: Comment }
   | { type: 'comment.delete'; id: string; issueId: string }
@@ -192,6 +193,10 @@ export class ProjectStore {
       case 'project.delete':
         this.set({ deleted: true })
         this.stop()
+        break
+      case 'project.reload':
+        // A bulk change (an import): fetch a fresh snapshot instead of replaying it.
+        void this.load()
         break
       case 'member.join':
         if (!s.members.some((m) => m.id === e.member.id)) this.set({ members: [...s.members, e.member].sort((a, b) => a.name.localeCompare(b.name)) })

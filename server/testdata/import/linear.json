@@ -1,0 +1,9 @@
+{"data": {"issues": {"nodes": [
+  {"identifier": "MOB-1", "title": "Offline mode", "priority": 2, "estimate": 5, "state": {"name": "Started", "type": "started"},
+   "team": {"key": "MOB", "name": "Mobile"}, "assignee": {"email": "carol@example.com", "name": "Carol"},
+   "labels": {"nodes": [{"name": "Feature"}]},
+   "comments": {"nodes": [{"id": "c-1", "body": "@bob take a look", "createdAt": "2025-09-03T10:00:00.000Z", "user": {"email": "x@elsewhere.com", "name": "Xavier"}}]},
+   "relations": {"nodes": [{"type": "blocks", "relatedIssue": {"identifier": "MOB-2"}}, {"type": "related", "relatedIssue": {"identifier": "MOB-3"}}]}},
+  {"identifier": "MOB-2", "title": "Sync conflicts", "priority": 1, "state": {"name": "Backlog", "type": "backlog"}, "team": {"key": "MOB", "name": "Mobile"},
+   "labels": {"nodes": [{"name": "bug"}]}, "inverseRelations": {"nodes": [{"type": "blocks", "issue": {"identifier": "MOB-1"}}]}}
+]}}}

@@ -4423,3 +4423,73 @@ select.field-input {
 .slack-row .field-input {
   flex: 1;
 }
+
+/* Import */
+.import-dialog .segmented {
+  align-self: flex-start;
+}
+.import-drop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px var(--border);
+  border: 1px dashed var(--border);
+  color: var(--text-subtle);
+  cursor: pointer;
+}
+.import-drop:hover {
+  background: var(--neutral-bg);
+}
+.import-drop input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.import-drop:focus-within {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.import-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.import-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+.import-stats b {
+  font: 650 18px/22px var(--display);
+}
+.import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.import-section {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--neutral-bg);
+  font-size: 13px;
+}
+.import-section.warn {
+  background: var(--warning-bg, var(--neutral-bg));
+}
+.import-section summary {
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.import-section ul {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow: auto;
+}

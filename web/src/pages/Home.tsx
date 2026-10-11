@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { api, errorMessage } from '../api'
 import { CommandPalette } from '../components/CommandPalette'
+import { ImportDialog } from '../components/ImportDialog'
 import { Sidebar } from '../components/Sidebar'
 import { formatDate } from '../lib/forecast'
 import { useSession } from '../store/session'
@@ -15,6 +16,8 @@ export function Home() {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null)
   const [work, setWork] = useState<MyWorkItem[] | null>(null)
   const [creating, setCreating] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const toast = useToast()
   const nav = useNavigate()
 
   const load = useCallback(() => {
@@ -80,6 +83,12 @@ export function Home() {
           <section>
             <div className="section-head">
               <h2>Projects</h2>
+              <span className="spacer" />
+              {workspace?.role === 'admin' && (
+                <Button variant="subtle" size="sm" icon={<Icon name="upload" size={14} />} onClick={() => setImporting(true)}>
+                  Import from Jira or Linear
+                </Button>
+              )}
             </div>
             {projects === null ? (
               <Spinner />
@@ -177,6 +186,18 @@ export function Home() {
           onCreated={(p) => {
             setCreating(false)
             nav(`/p/${p.id}/board`)
+          }}
+        />
+      )}
+      {importing && workspace && (
+        <ImportDialog
+          workspaceId={workspace.id}
+          onClose={() => setImporting(false)}
+          onDone={(r) => {
+            setImporting(false)
+            toast(`Imported ${r.issues.created} new and ${r.issues.updated} updated issues`, 'success')
+            if (r.projects.length === 1 && r.projects[0].id) nav(`/p/${r.projects[0].id}/board`)
+            else load()
           }}
         />
       )}

@@ -233,6 +233,7 @@ func (s *Server) Routes() http.Handler {
 	authed("PATCH /api/workspaces/{ws}/members/{user}", s.updateMember)
 	authed("DELETE /api/workspaces/{ws}/members/{user}", s.removeMember)
 	authed("POST /api/workspaces/{ws}/invites", s.createInvite)
+	authed("POST /api/workspaces/{ws}/import", s.importHandler)
 	h("GET /api/invites/{token}", s.previewInvite)
 	authed("POST /api/invites/{token}/accept", s.acceptInvite)
 

@@ -1,0 +1,12 @@
+{"names": {"customfield_10042": "Story Points"},
+ "issues": [
+  {"key": "WEB-10", "fields": {"summary": "Landing page", "issuetype": {"name": "Story"}, "status": {"name": "To Do", "statusCategory": {"key": "new"}},
+    "priority": {"name": "High"}, "project": {"key": "WEB", "name": "Website"}, "assignee": {"emailAddress": "BOB@example.com", "displayName": "Robert"},
+    "labels": ["marketing"], "duedate": "2025-11-01", "customfield_10042": 3, "created": "2025-09-01T10:00:00.000+0000",
+    "description": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Hero and pricing."}]}]},
+    "comment": {"comments": [{"id": "500", "author": {"emailAddress": "alice@example.com", "displayName": "Alice"}, "body": "Ship it", "created": "2025-09-02T10:00:00.000+0000"}]},
+    "issuelinks": [{"type": {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"}, "outwardIssue": {"key": "WEB-11"}}]}},
+  {"key": "WEB-11", "fields": {"summary": "Launch", "issuetype": {"name": "Task"}, "status": {"name": "Done", "statusCategory": {"key": "done"}},
+    "priority": {"name": "Medium"}, "project": {"key": "WEB", "name": "Website"}, "timeoriginalestimate": 14400,
+    "issuelinks": [{"type": {"name": "Blocks"}, "inwardIssue": {"key": "WEB-10"}}, {"type": {"name": "Relates"}, "outwardIssue": {"key": "WEB-10"}}]}}
+ ]}

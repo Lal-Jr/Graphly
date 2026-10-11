@@ -1,0 +1,4 @@
+ID,Team,Title,Description,Status,Estimate,Priority,Labels,Assignee,Creator,Created,Started,Completed,Canceled,Due Date,Parent issue,Blocks,Blocked by
+LIN-1,Platform,Auth service,,In Progress,3,High,"Backend, Security",bob@example.com,alice@example.com,Mon Sep 01 2025 10:00:00 GMT+0000 (Coordinated Universal Time),Tue Sep 02 2025 10:00:00 GMT+0000 (Coordinated Universal Time),,,2025-10-30,,LIN-2,
+LIN-2,Platform,Session tokens,,Todo,2,Urgent,Bug,,,Mon Sep 01 2025 11:00:00 GMT+0000 (Coordinated Universal Time),,,,,LIN-1,LIN-3,LIN-1
+LIN-3,Platform,Rotate keys,,Canceled,,No priority,,,,Mon Sep 01 2025 12:00:00 GMT+0000 (Coordinated Universal Time),,,Wed Sep 03 2025 10:00:00 GMT+0000 (Coordinated Universal Time),,,LIN-1,

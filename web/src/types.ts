@@ -192,3 +192,16 @@ export interface NotificationSettings {
   slackConnected: boolean
   emailAvailable: boolean
 }
+
+export interface ImportReport {
+  dryRun: boolean
+  source: 'jira' | 'linear'
+  format: 'csv' | 'json'
+  projects: { id?: string; key: string; name: string; action: 'create' | 'existing'; created: number; updated: number }[]
+  issues: { total: number; created: number; updated: number; unchanged: number; skipped: number }
+  links: { total: number; created: number; existing: number; droppedCount: number; dropped: { blocker: string; blocked: string; reason: string }[] }
+  comments: { created: number; existing: number }
+  statusesCreated: { project: string; name: string; category: string }[]
+  unmapped: { types: Record<string, number>; priorities: Record<string, number>; people: Record<string, number>; parents: number }
+  warnings: string[]
+}
