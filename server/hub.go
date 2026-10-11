@@ -381,12 +381,19 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request, u *User) error {
 
 	// Register first, then replay, so nothing falls in between. Clients ignore seqs they've seen.
 	if since > 0 {
-		var oldest int64
-		_ = s.db.QueryRow(ctx, `SELECT coalesce(min(id), 0) FROM events`).Scan(&oldest)
-		if oldest > since+1 {
+		var oldest, newest int64
+		_ = s.db.QueryRow(ctx, `SELECT coalesce(min(id), 0), coalesce(max(id), 0) FROM events`).Scan(&oldest, &newest)
+		switch {
+		case oldest > since+1:
 			realtimeResyncs.Inc("replay_pruned")
 			_ = conn.Write(ctx, websocket.MessageText, envelope("resync", map[string]any{}))
-		} else {
+		case since > newest:
+			// The client has seen events this database never had: it was restored from a backup
+			// (the events sequence went back) or the client is pointed at another deployment.
+			// Its local state can't be trusted, and new events would arrive with seqs it skips.
+			realtimeResyncs.Inc("client_ahead")
+			_ = conn.Write(ctx, websocket.MessageText, envelope("resync", map[string]any{}))
+		default:
 			rows, err := s.db.Query(ctx, `SELECT id, payload FROM events WHERE project_id = $1 AND id > $2 ORDER BY id`, projectID, since)
 			if err == nil {
 				for rows.Next() {

@@ -402,3 +402,31 @@ func TestPublishOrderPerProject(t *testing.T) {
 		t.Fatalf("events in id order: %v", ns)
 	}
 }
+
+// After a restore from backup the events sequence is behind what open browsers have seen. A
+// client asking to resume from a seq the database never reached must reload, not wait forever
+// for seqs it would skip.
+func TestReplayAheadOfDatabase(t *testing.T) {
+	srv, app := newTestApp(t, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	c := newClient(t, srv)
+	_, ws := signup(t, c, "Rae", "restore@example.com")
+	var p Project
+	c.must("POST", "/api/workspaces/"+ws.ID+"/projects", map[string]any{"key": "RS", "name": "Restored"}, &p)
+	c.must("POST", "/api/projects/"+p.ID+"/issues", map[string]any{"title": "one"}, nil)
+	var newest int64
+	app.db.QueryRow(ctx, `SELECT max(id) FROM events`).Scan(&newest)
+
+	l := dialLive(t, ctx, c, srv.URL, p.ID, newest+500)
+	m := l.next(func(m liveMsg) bool { return m.Type == "resync" || m.Type == "event" })
+	if m.Type != "resync" {
+		t.Fatalf("client ahead of the database got %q, want resync", m.Type)
+	}
+	// A client that's merely up to date is not told to reload.
+	l2 := dialLive(t, ctx, c, srv.URL, p.ID, newest)
+	m = l2.next(func(m liveMsg) bool { return m.Type == "resync" || m.Type == "presence" })
+	if m.Type != "presence" {
+		t.Fatalf("up-to-date client got %q", m.Type)
+	}
+}
