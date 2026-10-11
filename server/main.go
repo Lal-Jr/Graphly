@@ -39,6 +39,8 @@ type Config struct {
 	SlackWebhookHosts []string
 	// Where the app is served, for links in emails and Slack messages (and OAuth redirects).
 	PublicURL string
+	// OAuth sign-in; a provider is offered when its client id is set.
+	GoogleClientID, GoogleClientSecret, GitHubClientID, GitHubClientSecret string
 	// Outgoing email. Leave SMTPHost empty to turn email off.
 	SMTPHost, SMTPPort, SMTPUsername, SMTPPassword, SMTPFrom string
 	// Notification delivery: how long to gather a burst into one digest, how often to look, how
@@ -67,6 +69,8 @@ func loadConfig() Config {
 	cfg.ShipDateMoveThreshold = envInt("SHIP_DATE_MOVE_THRESHOLD", 2)
 	cfg.SlackWebhookHosts = envList("SLACK_WEBHOOK_HOSTS", "hooks.slack.com")
 	cfg.PublicURL = strings.TrimRight(os.Getenv("PUBLIC_URL"), "/")
+	cfg.GoogleClientID, cfg.GoogleClientSecret = os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET")
+	cfg.GitHubClientID, cfg.GitHubClientSecret = os.Getenv("GITHUB_CLIENT_ID"), os.Getenv("GITHUB_CLIENT_SECRET")
 	cfg.SMTPHost, cfg.SMTPPort = os.Getenv("SMTP_HOST"), env("SMTP_PORT", "587")
 	cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom = os.Getenv("SMTP_USERNAME"), os.Getenv("SMTP_PASSWORD"), os.Getenv("SMTP_FROM")
 	cfg.DigestWindow = envDuration("NOTIFY_DIGEST_WINDOW", 2*time.Minute)

@@ -4493,3 +4493,20 @@ select.field-input {
   max-height: 200px;
   overflow: auto;
 }
+
+/* Sign-in methods */
+.signin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.signin-row > span {
+  display: flex;
+  flex-direction: column;
+}
+.signin-actions {
+  gap: 8px;
+}

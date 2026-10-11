@@ -71,6 +71,7 @@ export function ProfilePage() {
               </div>
             </form>
           </section>
+          <SignInCard />
           <NotificationSettingsCard />
           <section className="settings-card">
             <h2>Appearance</h2>
@@ -88,6 +89,115 @@ export function ProfilePage() {
         </div>
       </main>
     </div>
+  )
+}
+
+const PROVIDER_LABEL: Record<string, string> = { google: 'Google', github: 'GitHub' }
+
+/** Password and connected Google/GitHub accounts. */
+function SignInCard() {
+  const toast = useToast()
+  const [data, setData] = useState<{ identities: { provider: string; email: string }[]; hasPassword: boolean } | null>(null)
+  const [providers, setProviders] = useState<{ id: string; label: string }[]>([])
+  const [pw, setPw] = useState({ current: '', password: '' })
+  const [editing, setEditing] = useState(false)
+  const load = () => api.get<typeof data>('/me/identities').then(setData, () => {})
+  useEffect(() => {
+    void load()
+    api.get<{ id: string; label: string }[]>('/auth/providers').then(setProviders, () => {})
+    const connected = new URLSearchParams(location.search).get('connected')
+    if (connected) toast(`${PROVIDER_LABEL[connected] ?? connected} connected`, 'success')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  if (!data) return null
+  const linked = new Map(data.identities.map((i) => [i.provider, i]))
+  const methods = data.identities.length + (data.hasPassword ? 1 : 0)
+  return (
+    <section className="settings-card" id="sign-in">
+      <h2>
+        <Icon name="lock" size={18} /> Sign-in
+      </h2>
+      <div className="signin-row">
+        <span>
+          <b>Password</b>
+          <span className="muted small">{data.hasPassword ? 'Set' : 'Not set: you sign in with ' + data.identities.map((i) => PROVIDER_LABEL[i.provider]).join(' or ')}</span>
+        </span>
+        {!editing && (
+          <Button size="sm" onClick={() => setEditing(true)}>
+            {data.hasPassword ? 'Change' : 'Set a password'}
+          </Button>
+        )}
+      </div>
+      {editing && (
+        <form
+          className="settings-form"
+          onSubmit={async (e) => {
+            e.preventDefault()
+            try {
+              await api.put('/me/password', pw)
+              toast('Password saved. Other sessions were signed out.', 'success')
+              setEditing(false)
+              setPw({ current: '', password: '' })
+              void load()
+            } catch (err) {
+              toast(errorMessage(err), 'error')
+            }
+          }}
+        >
+          {data.hasPassword && (
+            <label className="stack-field">
+              Current password
+              <input className="field-input" type="password" autoComplete="current-password" required value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+            </label>
+          )}
+          <label className="stack-field">
+            New password
+            <input className="field-input" type="password" autoComplete="new-password" minLength={8} required value={pw.password} onChange={(e) => setPw({ ...pw, password: e.target.value })} />
+          </label>
+          <div className="row signin-actions">
+            <Button type="submit" variant="primary">
+              Save password
+            </Button>
+            <Button type="button" variant="subtle" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+      {['google', 'github']
+        .filter((id) => linked.has(id) || providers.some((p) => p.id === id))
+        .map((id) => {
+          const ident = linked.get(id)
+          return (
+            <div className="signin-row" key={id}>
+              <span>
+                <b>{PROVIDER_LABEL[id]}</b>
+                <span className="muted small">{ident ? ident.email : 'Not connected'}</span>
+              </span>
+              {ident ? (
+                <Button
+                  size="sm"
+                  variant="subtle"
+                  disabled={methods < 2}
+                  title={methods < 2 ? 'Set a password first so you can still sign in' : undefined}
+                  onClick={() =>
+                    api.del(`/me/identities/${id}`).then(
+                      () => load(),
+                      (e) => toast(errorMessage(e), 'error'),
+                    )
+                  }
+                >
+                  Disconnect
+                </Button>
+              ) : (
+                <a className="btn btn-default btn-sm" href={`/api/auth/oauth/${id}/start?link=1`}>
+                  Connect
+                </a>
+              )}
+            </div>
+          )
+        })}
+    </section>
   )
 }
 

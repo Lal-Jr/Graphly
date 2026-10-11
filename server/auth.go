@@ -130,7 +130,7 @@ func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	var u User
-	var hash string
+	var hash *string
 	err := s.db.QueryRow(r.Context(), `SELECT id, email, name, color, password_hash FROM users WHERE lower(email) = lower($1)`,
 		strings.TrimSpace(c.Email)).Scan(&u.ID, &u.Email, &u.Name, &u.Color, &hash)
 	if err == pgx.ErrNoRows {
@@ -141,7 +141,12 @@ func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(c.Password)) != nil {
+	if hash == nil {
+		// Signs in with Google or GitHub only.
+		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(c.Password))
+		return errStatus(http.StatusUnauthorized, "incorrect email or password")
+	}
+	if bcrypt.CompareHashAndPassword([]byte(*hash), []byte(c.Password)) != nil {
 		return errStatus(http.StatusUnauthorized, "incorrect email or password")
 	}
 	if err := s.startSession(r.Context(), w, s.db, u.ID); err != nil {
@@ -160,6 +165,42 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) error {
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: s.cfg.SecureCookies, SameSite: http.SameSiteLaxMode})
 	return ok(w, map[string]bool{"ok": true})
+}
+
+// setPassword sets or changes the password. Changing one needs the current password; an SSO-only
+// account sets its first one without. Other sessions are signed out.
+func (s *Server) setPassword(w http.ResponseWriter, r *http.Request, u *User) error {
+	var body struct {
+		Current  string `json:"current"`
+		Password string `json:"password"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		return err
+	}
+	if len(body.Password) < 8 || len(body.Password) > 72 {
+		return badRequest("password must be 8–72 characters")
+	}
+	var hash *string
+	if err := s.db.QueryRow(r.Context(), `SELECT password_hash FROM users WHERE id = $1`, u.ID).Scan(&hash); err != nil {
+		return err
+	}
+	if hash != nil && bcrypt.CompareHashAndPassword([]byte(*hash), []byte(body.Current)) != nil {
+		return errStatus(http.StatusForbidden, "current password is incorrect")
+	}
+	next, err := bcrypt.GenerateFromPassword([]byte(body.Password), 12)
+	if err != nil {
+		return err
+	}
+	c, _ := r.Cookie(sessionCookie)
+	return s.inTx(r.Context(), func(tx pgx.Tx) error {
+		if _, err := tx.Exec(r.Context(), `UPDATE users SET password_hash = $2 WHERE id = $1`, u.ID, string(next)); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(r.Context(), `DELETE FROM sessions WHERE user_id = $1 AND token_hash <> $2`, u.ID, hashToken(c.Value)); err != nil {
+			return err
+		}
+		return ok(w, map[string]bool{"ok": true})
+	})
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request, u *User) error {

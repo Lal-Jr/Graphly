@@ -32,6 +32,8 @@ type Server struct {
 	mailer mailer
 	// For outbound calls (Slack, OAuth providers).
 	httpClient *http.Client
+	// Configured sign-in providers by id (google, github).
+	providers map[string]*oauthProvider
 }
 
 func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) *Server {
@@ -57,7 +59,7 @@ func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) *Server {
 		cfg.DeliveryMaxAttempts = 8
 	}
 	s := &Server{db: db, hub: hub, cfg: cfg, login: newRateLimiter(10, time.Minute), demo: newRateLimiter(5, 10*time.Minute),
-		forecasts: newForecastCache(256), mailer: newSMTPMailer(cfg), httpClient: outboundClient()}
+		forecasts: newForecastCache(256), mailer: newSMTPMailer(cfg), httpClient: outboundClient(), providers: oauthProviders(cfg)}
 	s.onForecast = s.forecastNotifications
 	return s
 }
@@ -224,6 +226,12 @@ func (s *Server) Routes() http.Handler {
 	h("POST /api/auth/login", s.loginHandler)
 	h("POST /api/auth/logout", s.logout)
 	h("POST /api/auth/demo", s.startDemo)
+	h("GET /api/auth/providers", s.listProviders)
+	h("GET /api/auth/oauth/{provider}/start", s.oauthStart)
+	h("GET /api/auth/oauth/{provider}/callback", s.oauthCallback)
+	authed("GET /api/me/identities", s.listIdentities)
+	authed("DELETE /api/me/identities/{provider}", s.unlinkIdentity)
+	authed("PUT /api/me/password", s.setPassword)
 	authed("GET /api/me", s.me)
 	authed("PATCH /api/me", s.updateMe)
 

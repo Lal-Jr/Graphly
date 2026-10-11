@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, errorMessage } from '../api'
 import { useSession } from '../store/session'
@@ -14,7 +14,12 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  // A failed Google/GitHub sign-in comes back here with ?error=.
+  const [error, setError] = useState<string | null>(params.get('error'))
+  const [providers, setProviders] = useState<{ id: string; label: string }[]>([])
+  useEffect(() => {
+    api.get<{ id: string; label: string }[]>('/auth/providers').then(setProviders, () => setProviders([]))
+  }, [])
   const [busy, setBusy] = useState(false)
   // Where to land once signed in; the demo sends you straight to its board.
   const [target, setTarget] = useState(next)
@@ -83,6 +88,11 @@ export function AuthPage({ mode }: { mode: 'login' | 'signup' }) {
         <div className="auth-divider">
           <span>or</span>
         </div>
+        {providers.map((p) => (
+          <a key={p.id} className="btn btn-default btn-md btn-block" href={`/api/auth/oauth/${p.id}/start?next=${encodeURIComponent(next)}`}>
+            Continue with {p.label}
+          </a>
+        ))}
         <Button
           className="btn-block demo-btn"
           icon={<Icon name="sparkles" size={16} />}
