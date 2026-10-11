@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import { addWorkdays, formatDate, nextWorkday, parseDate, workdaysBetween } from '../lib/forecast'
+import { Link } from 'react-router-dom'
+import { ConfidenceMeter } from '../layouts/ProjectLayout'
 import { useIssueParam } from '../store/nav'
 import { useProject } from '../store/useProject'
 import { PRIORITY_WEIGHT, type Issue } from '../types'
@@ -68,6 +70,20 @@ export function InsightsView() {
   return (
     <div className="view view-insights">
       <div className="insights-scroll">
+        {d.quality.unestimated > 0 && (
+          <div className={`estimate-warning is-${d.quality.confidence}`} role="status">
+            <Icon name="warning" size={16} />
+            <span>
+              <b>
+                {d.quality.unestimated} of {d.quality.openIssues} open issues have no estimate.
+              </b>{' '}
+              The forecast counts them as zero days, so the dates below are optimistic.
+            </span>
+            <Link to="../list?quick=unestimated" relative="path" className="btn btn-default btn-sm">
+              Show them
+            </Link>
+          </div>
+        )}
         <div className="insights-hero">
           <ShipDate />
           <div className="kpis">
@@ -344,6 +360,15 @@ function ShipDate() {
         <b className="ship-date">{formatDate(at(a.remaining))}</b>
         <p className="ship-sub">
           if every estimate holds · <b>{Math.ceil(a.remaining)}</b> working days
+        </p>
+        <p className={`ship-confidence is-${d.quality.confidence}`}>
+          <ConfidenceMeter level={d.quality.confidence} />
+          <b>{d.quality.confidence[0].toUpperCase() + d.quality.confidence.slice(1)} confidence</b>
+          <span>
+            {d.quality.unestimated
+              ? `${Math.round(d.quality.share * 100)}% of open issues unestimated`
+              : 'every open issue is estimated'}
+          </span>
         </p>
         <div className="ship-odds">
           {marks.map((m) => (

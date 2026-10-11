@@ -4199,3 +4199,76 @@ select.field-input {
 .overrun-model svg {
   vertical-align: -2px;
 }
+.confidence-meter {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 11px;
+}
+.confidence-meter i {
+  display: block;
+  width: 3px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.25;
+}
+.confidence-meter i:nth-child(1) { height: 5px; }
+.confidence-meter i:nth-child(2) { height: 8px; }
+.confidence-meter i:nth-child(3) { height: 11px; }
+.confidence-meter i.on { opacity: 1; }
+.pulse-confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font: 500 11px/14px var(--mono);
+  color: var(--hero-muted);
+}
+.pulse-confidence.is-high { color: var(--accent-bright); }
+.pulse-confidence.is-medium { color: var(--warning-strong); }
+.pulse-confidence.is-low { color: #ff8d69; }
+.pulse-warn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--warning) !important;
+  background: var(--warning-bg);
+  text-decoration: none !important;
+}
+.pulse-warn:hover { filter: brightness(0.97); }
+.estimate-warning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border-radius: 12px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  font-size: 13px;
+}
+.estimate-warning > span { flex: 1; }
+.estimate-warning.is-low {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.ship-confidence {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--hero-muted);
+}
+.ship-confidence b { color: var(--hero-text); font-weight: 600; }
+.ship-confidence.is-high .confidence-meter { color: var(--accent-bright); }
+.ship-confidence.is-medium .confidence-meter { color: var(--warning-strong); }
+.ship-confidence.is-low .confidence-meter { color: #ff8d69; }
+.chip-unestimated.on {
+  background: var(--warning-strong);
+  color: var(--on-accent-bright);
+}

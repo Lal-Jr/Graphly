@@ -3,7 +3,8 @@ import { analyze, type Analysis, type GraphNode } from '../lib/graph'
 import { forecast, type Forecast } from '../lib/forecast'
 import { DEFAULT_SPREADS, simulateConfidence, spreadFrom, type Confidence, type SpreadTable } from '../lib/montecarlo'
 import { api } from '../api'
-import type { Calibration, Category, Issue, Member, ServerForecast, Status } from '../types'
+import { estimateQuality } from '../lib/quality'
+import type { Calibration, Category, EstimateQuality, Issue, Member, ServerForecast, Status } from '../types'
 import { useToast } from '../ui/toast'
 import { ProjectStore, type ProjectState } from './project'
 
@@ -29,6 +30,8 @@ export interface ProjectData extends ProjectState {
   confidence: Confidence
   /** The overrun model in use: the server's calibration from this project's history, once loaded. */
   calibration: Calibration | null
+  /** How much of the open plan has no estimate, and how far that lets the forecast be trusted. */
+  quality: EstimateQuality
 }
 
 const Ctx = createContext<ProjectData | null>(null)
@@ -136,6 +139,7 @@ function derive(store: ProjectStore, s: ProjectState, server: ServerForecast | n
     dueDates,
     confidence,
     calibration: server?.calibration ?? null,
+    quality: estimateQuality(work.filter((i) => category(i) !== 'done')),
   }
 }
 

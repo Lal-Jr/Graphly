@@ -1,9 +1,13 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { isUnestimated } from '../lib/quality'
 import type { Issue, IssueType, Priority } from '../types'
 import { useSession } from './session'
 import { useProject, type ProjectData } from './useProject'
 
-export type QuickFilter = 'mine' | 'blocked' | 'critical' | 'atRisk' | 'late'
+export type QuickFilter = 'mine' | 'blocked' | 'critical' | 'atRisk' | 'late' | 'unestimated'
+
+const QUICK_IDS: QuickFilter[] = ['mine', 'blocked', 'critical', 'atRisk', 'late', 'unestimated']
 
 export interface Filters {
   q: string
@@ -44,6 +48,7 @@ export function matches(i: Issue, f: Filters, d: ProjectData, me: string | undef
     if (q === 'critical' && !d.analysis.criticalSet.has(i.id)) return false
     if (q === 'atRisk' && !d.analysis.atRisk.includes(i.id)) return false
     if (q === 'late' && !(d.forecasts.get(i.id)?.daysLate ?? 0)) return false
+    if (q === 'unestimated' && !(i.type !== 'epic' && d.category(i) !== 'done' && isUnestimated(i.estimate))) return false
   }
   return true
 }
@@ -51,6 +56,18 @@ export function matches(i: Issue, f: Filters, d: ProjectData, me: string | undef
 export function FiltersProvider({ children }: { children: ReactNode }) {
   const [filters, setFilters] = useState<Filters>(EMPTY)
   const data = useProject()
+  // Links such as "list?quick=unestimated" (from the estimate warning) set a quick filter on arrival.
+  const [params, setParams] = useSearchParams()
+  const quickParam = params.get('quick')
+  useEffect(() => {
+    if (!quickParam) return
+    const quick = quickParam.split(',').filter((q): q is QuickFilter => QUICK_IDS.includes(q as QuickFilter))
+    if (quick.length) setFilters({ ...EMPTY, quick })
+    setParams((p) => {
+      p.delete('quick')
+      return p
+    }, { replace: true })
+  }, [quickParam, setParams])
   const { user } = useSession()
   const value = useMemo<Ctx>(() => {
     const active = JSON.stringify(filters) !== JSON.stringify(EMPTY)

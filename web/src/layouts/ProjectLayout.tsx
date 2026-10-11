@@ -166,8 +166,10 @@ function ForecastPulse() {
   const done = d.work.filter((i) => d.category(i) === 'done').reduce((s, i) => s + i.estimate, 0)
   const pct = total ? Math.round((done / total) * 100) : 0
   const late = [...d.forecasts.values()].filter((f) => f.daysLate > 0).length
+  const q = d.quality
 
   return (
+    <>
     <NavLink to="insights" className="pulse" title="Open insights">
       <span className="pulse-label">
         <Icon name="target" size={13} /> Ships
@@ -188,6 +190,29 @@ function ForecastPulse() {
         </span>
         {late > 0 && <span className="pulse-late">{late} late</span>}
       </span>
+      {a.remaining > 0 && (
+        <span className={`pulse-confidence is-${q.confidence}`} title={`${q.unestimated} of ${q.openIssues} open issues have no estimate`}>
+          <ConfidenceMeter level={q.confidence} /> {q.confidence} confidence
+        </span>
+      )}
     </NavLink>
+    {q.unestimated > 0 && (
+      <NavLink to="list?quick=unestimated" className="pulse-warn" title="Unestimated issues count as zero days, so the date is optimistic. Show them.">
+        <Icon name="warning" size={13} /> {q.unestimated} open {q.unestimated === 1 ? 'issue has' : 'issues have'} no estimate
+      </NavLink>
+    )}
+    </>
+  )
+}
+
+/** Three bars, lit by forecast confidence: how much of the open plan is actually estimated. */
+export function ConfidenceMeter({ level }: { level: 'high' | 'medium' | 'low' }) {
+  const lit = level === 'high' ? 3 : level === 'medium' ? 2 : 1
+  return (
+    <span className={`confidence-meter is-${level}`} aria-hidden>
+      {[1, 2, 3].map((k) => (
+        <i key={k} className={k <= lit ? 'on' : ''} />
+      ))}
+    </span>
   )
 }

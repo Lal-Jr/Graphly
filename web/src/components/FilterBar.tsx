@@ -12,11 +12,12 @@ const QUICK: { id: QuickFilter; label: string; icon: ReactNode }[] = [
   { id: 'critical', label: 'Critical', icon: <Icon name="flame" size={14} /> },
   { id: 'atRisk', label: 'At risk', icon: <Icon name="warning" size={14} /> },
   { id: 'late', label: 'Late', icon: <Icon name="clock" size={14} /> },
+  { id: 'unestimated', label: 'No estimate', icon: <Icon name="info" size={14} /> },
 ]
 
 export function FilterBar({ children }: { children?: ReactNode }) {
   const { filters, set, toggle, clear, active } = useFilters()
-  const { members, issues, epics } = useProject()
+  const { members, issues, epics, quality } = useProject()
   const { user } = useSession()
   const labels = [...new Set(issues.flatMap((i) => i.labels))].sort()
   // Show the signed-in user first, like Jira's avatar filter.
@@ -86,7 +87,7 @@ export function FilterBar({ children }: { children?: ReactNode }) {
       )}
 
       <span className="divider-v" />
-      {QUICK.map((q) => (
+      {QUICK.filter((q) => q.id !== 'unestimated' || quality.unestimated > 0 || filters.quick.includes(q.id)).map((q) => (
         <button key={q.id} className={`chip${filters.quick.includes(q.id) ? ' on' : ''} chip-${q.id}`} onClick={() => toggle('quick', q.id)} title={q.label}>
           {q.icon}
           <span className="chip-label">{q.label}</span>
