@@ -4272,3 +4272,154 @@ select.field-input {
   background: var(--warning-strong);
   color: var(--on-accent-bright);
 }
+
+/* ---- notifications ---- */
+.inbox-btn {
+  position: relative;
+}
+.inbox-badge {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--critical);
+  color: #fff;
+  font: 600 10px/16px var(--mono);
+  text-align: center;
+}
+.inbox {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+.inbox header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.inbox ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+.inbox-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 24px;
+  text-align: center;
+  font-size: 13px;
+}
+.inbox-item {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text-subtle);
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.inbox-item:hover {
+  background: var(--hover);
+}
+.inbox-item.unread {
+  color: var(--text);
+}
+.inbox-item.unread .inbox-icon::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface-overlay);
+}
+.inbox-icon {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--neutral-bg);
+}
+.kind-unblocked .inbox-icon { background: var(--accent-bg); color: var(--accent-text); }
+.kind-late .inbox-icon,
+.kind-date_moved .inbox-icon { background: var(--critical-bg); color: var(--critical-text); }
+.kind-mention .inbox-icon { background: var(--discovery-bg); color: var(--discovery); }
+.kind-status .inbox-icon { background: var(--progress-bg); color: var(--progress-text); }
+.inbox-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.inbox-quote {
+  padding-left: 8px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-subtle);
+  font-size: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.watch-btn {
+  position: relative;
+}
+.watch-btn.on {
+  color: var(--accent-text);
+}
+.watch-count {
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  font: 600 9px/1 var(--mono);
+}
+.prefs-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+.prefs-table th {
+  font: 600 11px/16px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-subtlest);
+  text-align: center;
+  padding: 6px;
+}
+.prefs-table td {
+  padding: 8px 6px;
+  border-top: 1px solid var(--border);
+}
+.prefs-table td:first-child {
+  display: flex;
+  flex-direction: column;
+}
+.prefs-check {
+  text-align: center;
+  width: 70px;
+}
+.slack-row {
+  gap: 8px;
+  margin-top: 10px;
+}
+.slack-row .field-input {
+  flex: 1;
+}

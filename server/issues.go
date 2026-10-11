@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -270,6 +271,12 @@ func (s *Server) createIssue(w http.ResponseWriter, r *http.Request, u *User) er
 		if err := s.syncLifecycle(ctx, tx, []string{is.ID}); err != nil {
 			return err
 		}
+		if err := watch(ctx, tx, is.ID, is.ReporterID, is.AssigneeID); err != nil {
+			return err
+		}
+		if err := s.noteMentions(ctx, tx, projectID, is.ID, is.Description, "", "description", &u.ID, "mention:desc:"+is.ID+":1"); err != nil {
+			return err
+		}
 		return ok(w, is)
 	})
 }
@@ -372,8 +379,22 @@ func (s *Server) updateIssue(w http.ResponseWriter, r *http.Request, u *User) er
 				return err
 			}
 		}
+		if slices.Contains(changed, "assignee") {
+			if err := watch(ctx, tx, is.ID, is.AssigneeID); err != nil {
+				return err
+			}
+		}
+		if slices.Contains(changed, "description") {
+			if err := s.noteMentions(ctx, tx, projectID, is.ID, is.Description, before.Description, "description", &u.ID,
+				"mention:desc:"+is.ID+":"+strconv.Itoa(is.Version)); err != nil {
+				return err
+			}
+		}
 		if slices.Contains(changed, "status") {
-			if err := s.noteUnblocked(ctx, tx, projectID, before, is, u.ID); err != nil {
+			if err := s.noteStatusChange(ctx, tx, projectID, before, is, &u.ID, ""); err != nil {
+				return err
+			}
+			if err := s.noteUnblocked(ctx, tx, projectID, before, is, &u.ID); err != nil {
 				return err
 			}
 		}
@@ -382,8 +403,9 @@ func (s *Server) updateIssue(w http.ResponseWriter, r *http.Request, u *User) er
 }
 
 // noteUnblocked records an activity entry on each issue this one was the last open blocker of,
-// so the people waiting on it can see exactly when (and by what) they were freed up.
-func (s *Server) noteUnblocked(ctx context.Context, tx pgx.Tx, projectID string, before, after Issue, actorID any) error {
+// so the people waiting on it can see exactly when (and by what) they were freed up, and tells
+// their assignees. actorID is nil for automation.
+func (s *Server) noteUnblocked(ctx context.Context, tx pgx.Tx, projectID string, before, after Issue, actorID *string) error {
 	var wasDone, isDone bool
 	if err := tx.QueryRow(ctx, `SELECT (SELECT category = 'done' FROM statuses WHERE id = $1), (SELECT category = 'done' FROM statuses WHERE id = $2)`,
 		before.StatusID, after.StatusID).Scan(&wasDone, &isDone); err != nil {
@@ -404,6 +426,9 @@ func (s *Server) noteUnblocked(ctx context.Context, tx pgx.Tx, projectID string,
 	}
 	for _, d := range freed {
 		if err := logActivity(ctx, tx, projectID, &d, actorID, "unblocked", map[string]any{"by": after.ID}); err != nil {
+			return err
+		}
+		if err := s.noteFreed(ctx, tx, projectID, d, after.ID, actorID); err != nil {
 			return err
 		}
 	}
@@ -596,6 +621,12 @@ func (s *Server) addComment(w http.ResponseWriter, r *http.Request, u *User) err
 			return err
 		}
 		if err := publish(ctx, tx, projectID, "comment.add", map[string]any{"comment": c}); err != nil {
+			return err
+		}
+		if err := watch(ctx, tx, id, &u.ID); err != nil {
+			return err
+		}
+		if err := s.noteMentions(ctx, tx, projectID, id, text, "", "comment", &u.ID, "mention:comment:"+c.ID); err != nil {
 			return err
 		}
 		return ok(w, c)

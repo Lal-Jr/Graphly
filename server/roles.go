@@ -30,3 +30,15 @@ func (s *Server) projectRole(ctx context.Context, q querier, projectID string, u
 	}
 	return wsID, nil
 }
+
+// issueRole is projectRole for the project an issue belongs to; it returns the project id.
+func (s *Server) issueRole(ctx context.Context, q querier, issueID string, u *User, need projectRoleLevel) (string, error) {
+	projectID, err := s.issueProject(ctx, q, issueID, u.ID)
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.projectRole(ctx, q, projectID, u, need); err != nil {
+		return "", err
+	}
+	return projectID, nil
+}

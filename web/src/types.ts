@@ -166,3 +166,29 @@ export interface ServerForecast {
   calibration: Calibration | null
   quality: EstimateQuality | null
 }
+
+export type NotificationKind = 'unblocked' | 'late' | 'mention' | 'status' | 'date_moved'
+
+export interface AppNotification {
+  id: number
+  kind: NotificationKind
+  projectId: string | null
+  issueId: string | null
+  actorId: string | null
+  /** A snapshot of what it's about: key, title, projectKey, projectName, actorName, plus kind-specific fields. */
+  data: Record<string, unknown>
+  createdAt: string
+  readAt: string | null
+}
+
+export interface ChannelPrefs {
+  inApp: boolean
+  email: boolean
+  slack: boolean
+}
+
+export interface NotificationSettings {
+  prefs: Record<NotificationKind, ChannelPrefs>
+  slackConnected: boolean
+  emailAvailable: boolean
+}

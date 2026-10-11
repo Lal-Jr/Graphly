@@ -7,6 +7,7 @@ import type { Workspace } from '../types'
 import { Icon, Logo, type IconName } from '../ui/icons'
 import { Avatar, Button, MenuList, Modal, Popover } from '../ui/primitives'
 import { useToast } from '../ui/toast'
+import { Inbox } from './Inbox'
 
 const THEME_ICON: Record<ThemeMode, IconName> = { light: 'sun', dark: 'moon', system: 'monitor' }
 const NEXT_THEME: Record<ThemeMode, ThemeMode> = { light: 'dark', dark: 'system', system: 'light' }
@@ -39,6 +40,7 @@ export function Sidebar({
           <span>Graphly</span>
         </Link>
         <span className="spacer" />
+        <Inbox />
         <button className="icon-btn sm" onClick={() => setMode(NEXT_THEME[mode])} title={`Theme: ${mode} (click to change)`}>
           <Icon name={THEME_ICON[mode]} size={16} />
         </button>

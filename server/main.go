@@ -33,15 +33,13 @@ type Config struct {
 	// estimated issues; each type needs this many of its own, or it uses the project-wide range.
 	CalibrationMinIssues  int
 	CalibrationMinPerType int
+	// People involved in a project are notified when its ship date moves by at least this many working days.
+	ShipDateMoveThreshold int
+	// Hosts a user's Slack incoming webhook may point at.
+	SlackWebhookHosts []string
 }
 
 func loadConfig() Config {
-	env := func(k, def string) string {
-		if v := os.Getenv(k); v != "" {
-			return v
-		}
-		return def
-	}
 	cfg := Config{
 		Addr:           env("ADDR", ":8080"),
 		DatabaseURL:    env("DATABASE_URL", "postgres://localhost:5432/graphly?sslmode=disable"),
@@ -57,6 +55,8 @@ func loadConfig() Config {
 	cfg.ForecastInterval = envDuration("FORECAST_INTERVAL", 15*time.Minute)
 	cfg.CalibrationMinIssues = envInt("CALIBRATION_MIN_ISSUES", 20)
 	cfg.CalibrationMinPerType = envInt("CALIBRATION_MIN_PER_TYPE", 5)
+	cfg.ShipDateMoveThreshold = envInt("SHIP_DATE_MOVE_THRESHOLD", 2)
+	cfg.SlackWebhookHosts = envList("SLACK_WEBHOOK_HOSTS", "hooks.slack.com")
 	for _, o := range strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",") {
 		if o = strings.TrimSpace(o); o != "" {
 			cfg.AllowedOrigins = append(cfg.AllowedOrigins, o)
@@ -75,6 +75,23 @@ func envDuration(k string, def time.Duration) time.Duration {
 		fatal(k, err)
 	}
 	return d
+}
+
+func envList(k, def string) []string {
+	var out []string
+	for _, v := range strings.Split(env(k, def), ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func env(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
 }
 
 func envInt(k string, def int) int {

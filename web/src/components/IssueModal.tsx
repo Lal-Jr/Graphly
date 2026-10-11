@@ -46,6 +46,29 @@ export function IssueModal() {
   )
 }
 
+/** Follow an issue to hear when its status changes. Assignees, reporters and commenters follow automatically. */
+function WatchButton({ issueId }: { issueId: string }) {
+  const [state, setState] = useState<{ watching: boolean; watchers: number } | null>(null)
+  useEffect(() => {
+    setState(null)
+    api.get<{ watching: boolean; watchers: number }>(`/issues/${issueId}/watch`).then(setState, () => {})
+  }, [issueId])
+  if (!state) return null
+  const toggle = () =>
+    (state.watching ? api.del<typeof state>(`/issues/${issueId}/watch`) : api.put<typeof state>(`/issues/${issueId}/watch`, {})).then(setState, () => {})
+  return (
+    <button
+      className={`icon-btn watch-btn${state.watching ? ' on' : ''}`}
+      onClick={toggle}
+      title={state.watching ? `Watching · ${state.watchers} watching. Click to stop.` : `Watch for status changes · ${state.watchers} watching`}
+      aria-pressed={state.watching}
+    >
+      <Icon name={state.watching ? 'eye' : 'eye-off'} size={18} />
+      {state.watchers > 0 && <span className="watch-count">{state.watchers}</span>}
+    </button>
+  )
+}
+
 function IssueDetail({ issue, onClose }: { issue: Issue; onClose: () => void }) {
   const d = useProject()
   const { user } = useSession()
@@ -85,6 +108,7 @@ function IssueDetail({ issue, onClose }: { issue: Issue; onClose: () => void }) 
             <span className="muted small">viewing</span>
           </span>
         )}
+        <WatchButton issueId={issue.id} />
         <button className="icon-btn" onClick={copyLink} title="Copy link">
           <Icon name="link" size={18} />
         </button>
@@ -639,7 +663,7 @@ function ActivityPanel({ issue }: { issue: Issue }) {
             <Avatar user={user} size={32} />
             <div className="composer-body">
               <textarea
-                placeholder="Add a comment…"
+                placeholder="Add a comment… (@name to mention someone)"
                 rows={draft ? 3 : 1}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}

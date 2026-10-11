@@ -28,6 +28,8 @@ type Server struct {
 	forecasts *forecastCache
 	// Called after the background job records a forecast, with the one it replaced (may be nil).
 	onForecast func(ctx context.Context, prev, cur *ProjectForecast) error
+	// Sends email; nil when SMTP isn't configured.
+	mailer mailer
 }
 
 func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) *Server {
@@ -40,8 +42,16 @@ func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) *Server {
 	if cfg.CalibrationMinPerType == 0 {
 		cfg.CalibrationMinPerType = 5
 	}
-	return &Server{db: db, hub: hub, cfg: cfg, login: newRateLimiter(10, time.Minute), demo: newRateLimiter(5, 10*time.Minute),
+	if cfg.ShipDateMoveThreshold == 0 {
+		cfg.ShipDateMoveThreshold = 2
+	}
+	if cfg.SlackWebhookHosts == nil {
+		cfg.SlackWebhookHosts = []string{"hooks.slack.com"}
+	}
+	s := &Server{db: db, hub: hub, cfg: cfg, login: newRateLimiter(10, time.Minute), demo: newRateLimiter(5, 10*time.Minute),
 		forecasts: newForecastCache(256)}
+	s.onForecast = s.forecastNotifications
+	return s
 }
 
 // apiError is an error with an HTTP status that is safe to show to clients.
@@ -241,6 +251,15 @@ func (s *Server) Routes() http.Handler {
 	authed("DELETE /api/comments/{id}", s.deleteComment)
 	authed("GET /api/issues/{id}/activity", s.issueActivity)
 	authed("GET /api/issues/{id}/prs", s.listPRs)
+	authed("GET /api/issues/{id}/watch", s.getWatch)
+	authed("PUT /api/issues/{id}/watch", s.setWatch)
+	authed("DELETE /api/issues/{id}/watch", s.setWatch)
+
+	authed("GET /api/notifications", s.listNotifications)
+	authed("GET /api/notifications/unread", s.unreadCount)
+	authed("POST /api/notifications/read", s.markRead)
+	authed("GET /api/me/notification-settings", s.getNotificationSettings)
+	authed("PUT /api/me/notification-settings", s.updateNotificationSettings)
 
 	authed("GET /api/projects/{id}/forecast", s.getForecast)
 	authed("PUT /api/projects/{id}/snapshot", s.putSnapshot)
