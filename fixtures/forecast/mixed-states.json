@@ -1,0 +1,204 @@
+{
+ "name": "done deps, at-risk work, zero estimates, Saturday start",
+ "today": "2025-10-11",
+ "runs": 400,
+ "nodes": [
+  {
+   "id": "a",
+   "estimate": 2,
+   "state": "done",
+   "dependsOn": []
+  },
+  {
+   "id": "b",
+   "estimate": 3,
+   "state": "in_progress",
+   "dependsOn": [
+    "a",
+    "c"
+   ]
+  },
+  {
+   "id": "c",
+   "estimate": 0,
+   "state": "todo",
+   "dependsOn": []
+  },
+  {
+   "id": "d",
+   "estimate": 1.5,
+   "state": "todo",
+   "dependsOn": [
+    "b"
+   ]
+  },
+  {
+   "id": "e",
+   "estimate": 0.25,
+   "state": "in_progress",
+   "dependsOn": [
+    "d",
+    "ghost"
+   ]
+  },
+  {
+   "id": "f",
+   "estimate": 5,
+   "state": "todo",
+   "dependsOn": []
+  }
+ ],
+ "dueDates": {
+  "d": "2025-10-15",
+  "e": "2025-10-13",
+  "f": "2025-11-03"
+ },
+ "types": {
+  "b": "bug",
+  "d": "story"
+ },
+ "expect": {
+  "analysis": {
+   "remaining": 5,
+   "order": [
+    "c",
+    "f",
+    "b",
+    "d",
+    "e"
+   ],
+   "criticalPath": [
+    "f"
+   ],
+   "inCycle": [],
+   "ready": [
+    "c",
+    "f"
+   ],
+   "atRisk": [
+    "b",
+    "e"
+   ],
+   "blockedBy": {
+    "b": [
+     "c"
+    ],
+    "d": [
+     "b"
+    ],
+    "e": [
+     "d"
+    ]
+   },
+   "topBlockers": [
+    {
+     "id": "c",
+     "impact": 3
+    },
+    {
+     "id": "b",
+     "impact": 2
+    },
+    {
+     "id": "d",
+     "impact": 1
+    }
+   ],
+   "schedule": {
+    "b": {
+     "earliestStart": 0,
+     "earliestFinish": 3,
+     "latestStart": 0.25,
+     "latestFinish": 3.25,
+     "slack": 0.25
+    },
+    "c": {
+     "earliestStart": 0,
+     "earliestFinish": 0,
+     "latestStart": 0.25,
+     "latestFinish": 0.25,
+     "slack": 0.25
+    },
+    "d": {
+     "earliestStart": 3,
+     "earliestFinish": 4.5,
+     "latestStart": 3.25,
+     "latestFinish": 4.75,
+     "slack": 0.25
+    },
+    "e": {
+     "earliestStart": 4.5,
+     "earliestFinish": 4.75,
+     "latestStart": 4.75,
+     "latestFinish": 5,
+     "slack": 0.25
+    },
+    "f": {
+     "earliestStart": 0,
+     "earliestFinish": 5,
+     "latestStart": 0,
+     "latestFinish": 5,
+     "slack": 0
+    }
+   }
+  },
+  "forecast": {
+   "b": {
+    "start": "2025-10-13",
+    "finish": "2025-10-15",
+    "daysLate": 0
+   },
+   "c": {
+    "start": "2025-10-13",
+    "finish": "2025-10-13",
+    "daysLate": 0
+   },
+   "d": {
+    "start": "2025-10-16",
+    "finish": "2025-10-17",
+    "daysLate": 2
+   },
+   "e": {
+    "start": "2025-10-17",
+    "finish": "2025-10-17",
+    "daysLate": 4
+   },
+   "f": {
+    "start": "2025-10-13",
+    "finish": "2025-10-17",
+    "daysLate": 0
+   }
+  },
+  "confidence": {
+   "seed": 395459006,
+   "p50": 6.514143400446572,
+   "p85": 7.583826813514589,
+   "p95": 8.411967044008144,
+   "histogram": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    28,
+    99,
+    141,
+    99,
+    28,
+    5
+   ],
+   "onTime": {
+    "d": 0,
+    "e": 0,
+    "f": 1
+   },
+   "p85ById": {
+    "b": 5.46897897349414,
+    "c": 0,
+    "d": 7.305507097943425,
+    "e": 7.578239969050524,
+    "f": 6.651763345438786
+   }
+  }
+ }
+}

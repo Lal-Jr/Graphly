@@ -1,0 +1,40 @@
+{
+ "name": "nothing left to do",
+ "today": "2025-10-06",
+ "runs": 50,
+ "nodes": [
+  {
+   "id": "a",
+   "estimate": 1,
+   "state": "done",
+   "dependsOn": []
+  }
+ ],
+ "dueDates": {},
+ "types": {},
+ "expect": {
+  "analysis": {
+   "remaining": 0,
+   "order": [],
+   "criticalPath": [],
+   "inCycle": [],
+   "ready": [],
+   "atRisk": [],
+   "blockedBy": {},
+   "topBlockers": [],
+   "schedule": {}
+  },
+  "forecast": {},
+  "confidence": {
+   "seed": 2166136261,
+   "p50": 0,
+   "p85": 0,
+   "p95": 0,
+   "histogram": [
+    50
+   ],
+   "onTime": {},
+   "p85ById": {}
+  }
+ }
+}

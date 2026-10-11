@@ -1,0 +1,475 @@
+{
+ "name": "the sample launch plan",
+ "today": "2025-10-08",
+ "runs": 1000,
+ "nodes": [
+  {
+   "id": "spec",
+   "estimate": 2,
+   "state": "done",
+   "dependsOn": []
+  },
+  {
+   "id": "schema",
+   "estimate": 2,
+   "state": "done",
+   "dependsOn": [
+    "spec"
+   ]
+  },
+  {
+   "id": "api",
+   "estimate": 4,
+   "state": "in_progress",
+   "dependsOn": [
+    "schema"
+   ]
+  },
+  {
+   "id": "oauth",
+   "estimate": 3,
+   "state": "todo",
+   "dependsOn": [
+    "api"
+   ]
+  },
+  {
+   "id": "ui",
+   "estimate": 3,
+   "state": "in_progress",
+   "dependsOn": [
+    "spec"
+   ]
+  },
+  {
+   "id": "reset",
+   "estimate": 2,
+   "state": "todo",
+   "dependsOn": [
+    "api"
+   ]
+  },
+  {
+   "id": "e2e",
+   "estimate": 2,
+   "state": "todo",
+   "dependsOn": [
+    "oauth",
+    "ui"
+   ]
+  },
+  {
+   "id": "audit",
+   "estimate": 3,
+   "state": "todo",
+   "dependsOn": [
+    "e2e",
+    "reset"
+   ]
+  },
+  {
+   "id": "bug1",
+   "estimate": 0.5,
+   "state": "in_progress",
+   "dependsOn": [
+    "api"
+   ]
+  },
+  {
+   "id": "tour",
+   "estimate": 3,
+   "state": "todo",
+   "dependsOn": [
+    "ui"
+   ]
+  },
+  {
+   "id": "emails",
+   "estimate": 2,
+   "state": "todo",
+   "dependsOn": [
+    "api"
+   ]
+  },
+  {
+   "id": "metrics",
+   "estimate": 2,
+   "state": "todo",
+   "dependsOn": []
+  },
+  {
+   "id": "docs",
+   "estimate": 1,
+   "state": "todo",
+   "dependsOn": [
+    "api"
+   ]
+  },
+  {
+   "id": "beta",
+   "estimate": 1,
+   "state": "todo",
+   "dependsOn": [
+    "audit",
+    "docs",
+    "tour"
+   ]
+  },
+  {
+   "id": "ci",
+   "estimate": 1,
+   "state": "in_progress",
+   "dependsOn": []
+  },
+  {
+   "id": "bug2",
+   "estimate": 1,
+   "state": "todo",
+   "dependsOn": []
+  }
+ ],
+ "dueDates": {
+  "beta": "2025-10-20"
+ },
+ "types": {
+  "spec": "task",
+  "schema": "task",
+  "api": "story",
+  "oauth": "story",
+  "ui": "story",
+  "reset": "story",
+  "e2e": "task",
+  "audit": "task",
+  "bug1": "bug",
+  "tour": "story",
+  "emails": "story",
+  "metrics": "task",
+  "docs": "task",
+  "beta": "task",
+  "ci": "task",
+  "bug2": "bug"
+ },
+ "expect": {
+  "analysis": {
+   "remaining": 13,
+   "order": [
+    "api",
+    "ui",
+    "metrics",
+    "ci",
+    "bug2",
+    "oauth",
+    "reset",
+    "bug1",
+    "emails",
+    "docs",
+    "tour",
+    "e2e",
+    "audit",
+    "beta"
+   ],
+   "criticalPath": [
+    "api",
+    "oauth",
+    "e2e",
+    "audit",
+    "beta"
+   ],
+   "inCycle": [],
+   "ready": [
+    "metrics",
+    "bug2"
+   ],
+   "atRisk": [
+    "bug1"
+   ],
+   "blockedBy": {
+    "audit": [
+     "e2e",
+     "reset"
+    ],
+    "beta": [
+     "audit",
+     "docs",
+     "tour"
+    ],
+    "bug1": [
+     "api"
+    ],
+    "docs": [
+     "api"
+    ],
+    "e2e": [
+     "oauth",
+     "ui"
+    ],
+    "emails": [
+     "api"
+    ],
+    "oauth": [
+     "api"
+    ],
+    "reset": [
+     "api"
+    ],
+    "tour": [
+     "ui"
+    ]
+   },
+   "topBlockers": [
+    {
+     "id": "api",
+     "impact": 8
+    },
+    {
+     "id": "ui",
+     "impact": 4
+    },
+    {
+     "id": "oauth",
+     "impact": 3
+    },
+    {
+     "id": "e2e",
+     "impact": 2
+    },
+    {
+     "id": "reset",
+     "impact": 2
+    },
+    {
+     "id": "audit",
+     "impact": 1
+    },
+    {
+     "id": "docs",
+     "impact": 1
+    },
+    {
+     "id": "tour",
+     "impact": 1
+    }
+   ],
+   "schedule": {
+    "api": {
+     "earliestStart": 0,
+     "earliestFinish": 4,
+     "latestStart": 0,
+     "latestFinish": 4,
+     "slack": 0
+    },
+    "audit": {
+     "earliestStart": 9,
+     "earliestFinish": 12,
+     "latestStart": 9,
+     "latestFinish": 12,
+     "slack": 0
+    },
+    "beta": {
+     "earliestStart": 12,
+     "earliestFinish": 13,
+     "latestStart": 12,
+     "latestFinish": 13,
+     "slack": 0
+    },
+    "bug1": {
+     "earliestStart": 4,
+     "earliestFinish": 4.5,
+     "latestStart": 12.5,
+     "latestFinish": 13,
+     "slack": 8.5
+    },
+    "bug2": {
+     "earliestStart": 0,
+     "earliestFinish": 1,
+     "latestStart": 12,
+     "latestFinish": 13,
+     "slack": 12
+    },
+    "ci": {
+     "earliestStart": 0,
+     "earliestFinish": 1,
+     "latestStart": 12,
+     "latestFinish": 13,
+     "slack": 12
+    },
+    "docs": {
+     "earliestStart": 4,
+     "earliestFinish": 5,
+     "latestStart": 11,
+     "latestFinish": 12,
+     "slack": 7
+    },
+    "e2e": {
+     "earliestStart": 7,
+     "earliestFinish": 9,
+     "latestStart": 7,
+     "latestFinish": 9,
+     "slack": 0
+    },
+    "emails": {
+     "earliestStart": 4,
+     "earliestFinish": 6,
+     "latestStart": 11,
+     "latestFinish": 13,
+     "slack": 7
+    },
+    "metrics": {
+     "earliestStart": 0,
+     "earliestFinish": 2,
+     "latestStart": 11,
+     "latestFinish": 13,
+     "slack": 11
+    },
+    "oauth": {
+     "earliestStart": 4,
+     "earliestFinish": 7,
+     "latestStart": 4,
+     "latestFinish": 7,
+     "slack": 0
+    },
+    "reset": {
+     "earliestStart": 4,
+     "earliestFinish": 6,
+     "latestStart": 7,
+     "latestFinish": 9,
+     "slack": 3
+    },
+    "tour": {
+     "earliestStart": 3,
+     "earliestFinish": 6,
+     "latestStart": 9,
+     "latestFinish": 12,
+     "slack": 6
+    },
+    "ui": {
+     "earliestStart": 0,
+     "earliestFinish": 3,
+     "latestStart": 4,
+     "latestFinish": 7,
+     "slack": 4
+    }
+   }
+  },
+  "forecast": {
+   "api": {
+    "start": "2025-10-08",
+    "finish": "2025-10-13",
+    "daysLate": 0
+   },
+   "audit": {
+    "start": "2025-10-21",
+    "finish": "2025-10-23",
+    "daysLate": 0
+   },
+   "beta": {
+    "start": "2025-10-24",
+    "finish": "2025-10-24",
+    "daysLate": 4
+   },
+   "bug1": {
+    "start": "2025-10-14",
+    "finish": "2025-10-14",
+    "daysLate": 0
+   },
+   "bug2": {
+    "start": "2025-10-08",
+    "finish": "2025-10-08",
+    "daysLate": 0
+   },
+   "ci": {
+    "start": "2025-10-08",
+    "finish": "2025-10-08",
+    "daysLate": 0
+   },
+   "docs": {
+    "start": "2025-10-14",
+    "finish": "2025-10-14",
+    "daysLate": 0
+   },
+   "e2e": {
+    "start": "2025-10-17",
+    "finish": "2025-10-20",
+    "daysLate": 0
+   },
+   "emails": {
+    "start": "2025-10-14",
+    "finish": "2025-10-15",
+    "daysLate": 0
+   },
+   "metrics": {
+    "start": "2025-10-08",
+    "finish": "2025-10-09",
+    "daysLate": 0
+   },
+   "oauth": {
+    "start": "2025-10-14",
+    "finish": "2025-10-16",
+    "daysLate": 0
+   },
+   "reset": {
+    "start": "2025-10-14",
+    "finish": "2025-10-15",
+    "daysLate": 0
+   },
+   "tour": {
+    "start": "2025-10-13",
+    "finish": "2025-10-15",
+    "daysLate": 0
+   },
+   "ui": {
+    "start": "2025-10-08",
+    "finish": "2025-10-10",
+    "daysLate": 0
+   }
+  },
+  "confidence": {
+   "seed": 3308241545,
+   "p50": 15.256994779664113,
+   "p85": 16.591739766434745,
+   "p95": 17.529109371586095,
+   "histogram": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    23,
+    141,
+    273,
+    294,
+    172,
+    75,
+    20,
+    1
+   ],
+   "onTime": {
+    "beta": 0
+   },
+   "p85ById": {
+    "api": 5.870162000779494,
+    "audit": 15.465772471355269,
+    "beta": 16.591739766434745,
+    "bug1": 6.560278726156705,
+    "bug2": 1.8155769748495827,
+    "ci": 1.3286527706323406,
+    "docs": 7.009238162734971,
+    "e2e": 11.949599752228377,
+    "emails": 8.330257168588385,
+    "metrics": 2.671940366710336,
+    "oauth": 9.702274609880508,
+    "reset": 8.249209252786807,
+    "tour": 8.096918256799043,
+    "ui": 4.373281280927292
+   }
+  }
+ }
+}

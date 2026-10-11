@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // the runtime image has no zoneinfo; FORECAST_TIMEZONE needs it
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -24,6 +26,9 @@ type Config struct {
 	AllowedOrigins []string
 	// Header carrying the real client IP when behind a trusted proxy, e.g. "Fly-Client-IP".
 	ClientIPHeader string
+	// The timezone "today" is decided in for forecasts, and how often the background job runs.
+	ForecastLocation *time.Location
+	ForecastInterval time.Duration
 }
 
 func loadConfig() Config {
@@ -40,12 +45,42 @@ func loadConfig() Config {
 		SecureCookies:  env("SECURE_COOKIES", "false") == "true",
 		ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
 	}
+	loc, err := time.LoadLocation(env("FORECAST_TIMEZONE", "UTC"))
+	if err != nil {
+		fatal("FORECAST_TIMEZONE", err)
+	}
+	cfg.ForecastLocation = loc
+	cfg.ForecastInterval = envDuration("FORECAST_INTERVAL", 15*time.Minute)
 	for _, o := range strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",") {
 		if o = strings.TrimSpace(o); o != "" {
 			cfg.AllowedOrigins = append(cfg.AllowedOrigins, o)
 		}
 	}
 	return cfg
+}
+
+func envDuration(k string, def time.Duration) time.Duration {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		fatal(k, err)
+	}
+	return d
+}
+
+func envInt(k string, def int) int {
+	v := os.Getenv(k)
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		fatal(k, err)
+	}
+	return n
 }
 
 func main() {
@@ -67,9 +102,12 @@ func main() {
 	go hub.Run(ctx)
 	go pruneLoop(ctx, pool)
 
+	app := NewServer(pool, hub, cfg)
+	go app.forecastLoop(ctx)
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           NewServer(pool, hub, cfg).Routes(),
+		Handler:           app.Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() {

@@ -1,8 +1,7 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { analyze, type Analysis, type GraphNode } from '../lib/graph'
-import { addWorkdays, forecast, nextWorkday, toISODate, type Forecast } from '../lib/forecast'
+import { forecast, type Forecast } from '../lib/forecast'
 import { defaultSpread, simulateConfidence, type Confidence } from '../lib/montecarlo'
-import { api } from '../api'
 import type { Category, Issue, Member, Status } from '../types'
 import { useToast } from '../ui/toast'
 import { ProjectStore, type ProjectState } from './project'
@@ -45,7 +44,6 @@ export function ProjectProvider({ projectId, children }: { projectId: string; ch
 
   const state = useSyncExternalStore(store.subscribe, store.getState)
   const data = useMemo(() => derive(store, state), [store, state])
-  useDailySnapshot(data)
   return <Ctx.Provider value={data}>{children}</Ctx.Provider>
 }
 
@@ -116,36 +114,6 @@ function derive(store: ProjectStore, s: ProjectState): ProjectData {
 }
 
 const planCache = {} as { key?: string; analysis: Analysis; forecasts: Map<string, Forecast>; confidence: Confidence }
-
-/**
- * The planning engine runs in the browser, so whoever has the project open reports the day's
- * forecast (throttled). The standup uses these readings to show how the finish date moved.
- */
-function useDailySnapshot(d: ProjectData) {
-  const last = useRef('')
-  const ready = d.phase === 'ready' && d.project
-  const origin = nextWorkday(new Date())
-  const date = (days: number) => (days > 0 ? toISODate(addWorkdays(origin, Math.ceil(days) - 1)) : null)
-  const body = ready
-    ? {
-        finish: date(d.analysis.remaining),
-        finishP85: date(d.confidence.p85),
-        remaining: d.analysis.remaining,
-        openIssues: d.work.filter((i) => d.category(i) !== 'done').length,
-        blocked: d.analysis.blockedBy.size,
-      }
-    : null
-  const key = body ? JSON.stringify(body) : ''
-  const projectId = d.project?.id
-  useEffect(() => {
-    if (!key || key === last.current || !projectId) return
-    const t = setTimeout(() => {
-      last.current = key
-      api.put(`/projects/${projectId}/snapshot`, JSON.parse(key)).catch(() => {})
-    }, 4000)
-    return () => clearTimeout(t)
-  }, [key, projectId])
-}
 
 export function useProject() {
   const v = useContext(Ctx)

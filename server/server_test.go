@@ -24,6 +24,14 @@ import (
 // its public schema is wiped at the start of the run.
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	srv, _ := newTestApp(t, nil)
+	return srv
+}
+
+// newTestApp is newTestServer that also returns the app, for driving background jobs directly.
+// configure (optional) adjusts the config before the server is built.
+func newTestApp(t *testing.T, configure func(*Config)) (*httptest.Server, *Server) {
+	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
 		url = "postgres://localhost:5432/graphly_test?sslmode=disable"
@@ -47,9 +55,14 @@ func newTestServer(t *testing.T) *httptest.Server {
 	}
 	hub := NewHub(pool)
 	go hub.Run(ctx)
-	srv := httptest.NewServer(NewServer(pool, hub, Config{}).Routes())
+	cfg := Config{}
+	if configure != nil {
+		configure(&cfg)
+	}
+	app := NewServer(pool, hub, cfg)
+	srv := httptest.NewServer(app.Routes())
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, app
 }
 
 type apiClient struct {
@@ -418,14 +431,6 @@ func TestGitHubWebhook(t *testing.T) {
 		t.Fatalf("issue moved backwards to %s", st.Name)
 	}
 
-	// Snapshots: one per day, latest wins.
-	c.must("PUT", "/api/projects/"+p.ID+"/snapshot", map[string]any{"finish": "2030-01-02", "remaining": 5, "openIssues": 3, "blocked": 1}, nil)
-	c.must("PUT", "/api/projects/"+p.ID+"/snapshot", map[string]any{"finish": "2030-01-03", "remaining": 6, "openIssues": 3, "blocked": 1}, nil)
-	var snaps []snapshot
-	c.must("GET", "/api/projects/"+p.ID+"/snapshots", nil, &snaps)
-	if len(snaps) != 1 || *snaps[0].Finish != "2030-01-03" {
-		t.Fatalf("snapshots: %+v", snaps)
-	}
 }
 
 func TestIssueNumbers(t *testing.T) {

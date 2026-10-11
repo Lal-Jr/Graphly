@@ -24,10 +24,18 @@ type Server struct {
 	cfg   Config
 	login *rateLimiter
 	demo  *rateLimiter
+	// Recent forecasts, keyed by project version.
+	forecasts *forecastCache
+	// Called after the background job records a forecast, with the one it replaced (may be nil).
+	onForecast func(ctx context.Context, prev, cur *ProjectForecast) error
 }
 
 func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) *Server {
-	return &Server{db: db, hub: hub, cfg: cfg, login: newRateLimiter(10, time.Minute), demo: newRateLimiter(5, 10*time.Minute)}
+	if cfg.ForecastLocation == nil {
+		cfg.ForecastLocation = time.UTC
+	}
+	return &Server{db: db, hub: hub, cfg: cfg, login: newRateLimiter(10, time.Minute), demo: newRateLimiter(5, 10*time.Minute),
+		forecasts: newForecastCache(256)}
 }
 
 // apiError is an error with an HTTP status that is safe to show to clients.
@@ -228,6 +236,7 @@ func (s *Server) Routes() http.Handler {
 	authed("GET /api/issues/{id}/activity", s.issueActivity)
 	authed("GET /api/issues/{id}/prs", s.listPRs)
 
+	authed("GET /api/projects/{id}/forecast", s.getForecast)
 	authed("PUT /api/projects/{id}/snapshot", s.putSnapshot)
 	authed("GET /api/projects/{id}/snapshots", s.listSnapshots)
 	authed("GET /api/projects/{id}/github", s.githubStatus)

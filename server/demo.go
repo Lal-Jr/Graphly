@@ -170,13 +170,13 @@ func seedDemoHistory(ctx context.Context, tx pgx.Tx, projectID string, seed *see
 	}
 
 	// A week of daily forecast readings: the finish crept out, then slipped two days yesterday when the
-	// security review was re-estimated. Today's reading comes from the first client to open the project.
+	// security review was re-estimated. Today's reading is computed by the server (forecasting.go).
 	finish := addWorkdays(nextWorkday(now), 12) // the sample plan's critical path is 13 working days
 	for day, slip := range map[int]int{7: 4, 6: 4, 5: 3, 4: 3, 3: 2, 2: 2, 1: 2} {
 		f := addWorkdays(finish, -slip)
 		taken := now.AddDate(0, 0, -day)
-		if _, err := tx.Exec(ctx, `INSERT INTO forecast_snapshots (project_id, day, finish, finish_p85, remaining, open_issues, blocked, taken_at)
-			VALUES ($1, $2::date, $3::date, $4::date, $5, $6, $7, $8)`,
+		if _, err := tx.Exec(ctx, `INSERT INTO forecast_snapshots (project_id, day, finish, finish_p85, remaining, open_issues, blocked, taken_at, source)
+			VALUES ($1, $2::date, $3::date, $4::date, $5, $6, $7, $8, 'seed')`,
 			projectID, taken.Format("2006-01-02"), f.Format("2006-01-02"), addWorkdays(f, 3).Format("2006-01-02"),
 			workdaysBetween(taken, f)+1, 16, 9, taken); err != nil {
 			return err

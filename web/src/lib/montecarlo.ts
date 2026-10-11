@@ -19,26 +19,28 @@ export interface Confidence {
   /** How many runs finished on each working day from today (index = days, rounded up). */
   histogram: number[]
   runs: number
+  /** The PRNG seed the runs used. Pass it back to reproduce them exactly. */
+  seed: number
 }
 
 /** Low and high multipliers on the estimate. Work tends to overrun, bugs most of all. */
 export type Spread = (id: string) => [number, number]
 
-export const defaultSpread =
-  (typeOf: (id: string) => string | undefined): Spread =>
-  (id) => {
-    switch (typeOf(id)) {
-      case 'bug':
-        return [0.6, 2.5]
-      case 'story':
-        return [0.8, 1.8]
-      default:
-        return [0.8, 1.6]
-    }
-  }
+/** Overrun ranges per issue type, used until a project has enough history to calibrate its own. */
+export type SpreadTable = Record<string, [number, number]>
+
+export const DEFAULT_SPREADS: SpreadTable = { bug: [0.6, 2.5], story: [0.8, 1.8], task: [0.8, 1.6] }
+
+/** Looks each task's type up in a table (anything unknown, epics included, is treated as a task). */
+export const spreadFrom =
+  (typeOf: (id: string) => string | undefined, table: SpreadTable = DEFAULT_SPREADS): Spread =>
+  (id) =>
+    table[typeOf(id) ?? 'task'] ?? table.task ?? DEFAULT_SPREADS.task
+
+export const defaultSpread = (typeOf: (id: string) => string | undefined): Spread => spreadFrom(typeOf)
 
 /** Small, fast, seedable PRNG so the same plan always yields the same numbers (no jitter on re-render). */
-function mulberry32(seed: number) {
+export function mulberry32(seed: number) {
   return () => {
     seed |= 0
     seed = (seed + 0x6d2b79f5) | 0
@@ -48,7 +50,7 @@ function mulberry32(seed: number) {
   }
 }
 
-function hash(s: string) {
+export function hash(s: string) {
   let h = 2166136261
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619)
   return h >>> 0
@@ -71,6 +73,8 @@ export function simulateConfidence(
   spread: Spread,
   runs = 1000,
   today = new Date(),
+  /** Defaults to a hash of the plan, so the same plan always yields the same numbers. */
+  seed?: number,
 ): Confidence {
   // analysis.schedule is keyed in topological order over the open, acyclic tasks.
   const order = [...analysis.schedule.keys()]
@@ -86,7 +90,8 @@ export function simulateConfidence(
     return due ? workdaysBetween(origin, parseDate(due)) : -1
   })
 
-  const rand = mulberry32(hash(order.join() + est.join()))
+  const runSeed = seed ?? hash(order.join() + est.join())
+  const rand = mulberry32(runSeed)
   const finishes = new Float64Array(order.length)
   const totals: number[] = []
   const perTask = order.map(() => [] as number[])
@@ -122,5 +127,5 @@ export function simulateConfidence(
     while (histogram.length <= day) histogram.push(0)
     histogram[day]++
   }
-  return { p50: percentile(totals, 0.5), p85: percentile(totals, 0.85), p95: percentile(totals, 0.95), onTime, p85ById, histogram, runs }
+  return { p50: percentile(totals, 0.5), p85: percentile(totals, 0.85), p95: percentile(totals, 0.95), onTime, p85ById, histogram, runs, seed: runSeed }
 }

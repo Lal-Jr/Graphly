@@ -167,7 +167,8 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request, u *User) err
 		var l Link
 		return l, row.Scan(&l.BlockerID, &l.BlockedID)
 	})(tx.Query(ctx, `
-		SELECT l.blocker_id, l.blocked_id FROM issue_links l JOIN issues i ON i.id = l.blocked_id WHERE i.project_id = $1`, id)); err != nil {
+		SELECT l.blocker_id, l.blocked_id FROM issue_links l JOIN issues i ON i.id = l.blocked_id WHERE i.project_id = $1
+		ORDER BY l.created_at, l.blocker_id`, id)); err != nil {
 		return err
 	}
 	if snap.Members, err = s.members(ctx, tx, wsID); err != nil {
