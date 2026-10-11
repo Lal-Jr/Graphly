@@ -1,0 +1,521 @@
+openapi: 3.1.0
+info:
+  title: Graphly API
+  version: "1.0"
+  description: |
+    The REST surface for projects, issues, blocking links and forecasts.
+
+    **Authentication.** Create a personal API token under Profile → API tokens and send it as
+    `Authorization: Bearer gly_…`. A token acts as you, with your workspace permissions. Read tokens
+    can only make GET requests. Tokens can't manage tokens, passwords or sign-in methods.
+
+    **Rate limits.** Each token gets `API_TOKEN_RATE_LIMIT` requests per minute (600 by default).
+    Every response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`
+    (Unix seconds); over the limit you get `429` with `Retry-After`.
+
+    **Errors** are JSON: `{"error": "message"}`, with a `data` field on some conflicts.
+
+    **Dates** are `YYYY-MM-DD`. Estimates are working days. Forecasts are computed on the server in
+    `FORECAST_TIMEZONE` and skip weekends.
+servers:
+  - url: /
+security:
+  - bearer: []
+tags:
+  - name: Account
+  - name: Projects
+  - name: Issues
+  - name: Links
+  - name: Forecast
+  - name: Import
+
+paths:
+  /api/me:
+    get:
+      tags: [Account]
+      summary: The token's owner and their workspaces
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+                  workspaces:
+                    type: array
+                    items: { $ref: "#/components/schemas/Workspace" }
+
+  /api/workspaces/{ws}/members:
+    get:
+      tags: [Account]
+      summary: Workspace members
+      parameters: [{ $ref: "#/components/parameters/ws" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Member" } }
+
+  /api/workspaces/{ws}/projects:
+    get:
+      tags: [Projects]
+      summary: Projects in a workspace, with open and done counts
+      parameters: [{ $ref: "#/components/parameters/ws" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/Project"
+                    - type: object
+                      properties:
+                        openIssues: { type: integer }
+                        doneIssues: { type: integer }
+    post:
+      tags: [Projects]
+      summary: Create a project
+      parameters: [{ $ref: "#/components/parameters/ws" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, name]
+              properties:
+                key: { type: string, pattern: "^[A-Z][A-Z0-9]{1,9}$", example: ENG }
+                name: { type: string, maxLength: 80 }
+                description: { type: string, maxLength: 10000 }
+                sample: { type: boolean, description: Seed an example plan }
+      responses:
+        "200": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/workspaces/{ws}/import:
+    post:
+      tags: [Import]
+      summary: Import a Jira or Linear export
+      description: |
+        Admins only. Send the export file's text as `content`. With `dryRun: true` nothing is written
+        and the report says exactly what a real run would do. Re-running the same export updates what
+        it created. Links that would form a cycle, point outside the import, or cross projects are
+        dropped and listed in the report.
+      parameters: [{ $ref: "#/components/parameters/ws" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [source, content]
+              properties:
+                source: { type: string, enum: [jira, linear] }
+                content: { type: string, description: "CSV or JSON export, up to 25 MB" }
+                dryRun: { type: boolean }
+      responses:
+        "200": { description: Import report, content: { application/json: { schema: { $ref: "#/components/schemas/ImportReport" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /api/projects/{id}:
+    get:
+      tags: [Projects]
+      summary: A whole project (statuses, issues, links, members) in one consistent snapshot
+      parameters: [{ $ref: "#/components/parameters/project" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project: { $ref: "#/components/schemas/Project" }
+                  statuses: { type: array, items: { $ref: "#/components/schemas/Status" } }
+                  issues: { type: array, items: { $ref: "#/components/schemas/Issue" } }
+                  links: { type: array, items: { $ref: "#/components/schemas/Link" } }
+                  members: { type: array, items: { $ref: "#/components/schemas/Member" } }
+                  seq: { type: integer, description: Realtime cursor }
+    patch:
+      tags: [Projects]
+      summary: Rename or describe a project
+      parameters: [{ $ref: "#/components/parameters/project" }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 80 }
+                description: { type: string, maxLength: 10000 }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+
+  /api/projects/{id}/activity:
+    get:
+      tags: [Projects]
+      summary: Recent activity in a project, newest first
+      parameters: [{ $ref: "#/components/parameters/project" }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Activity" } } } } }
+
+  /api/projects/{id}/issues:
+    get:
+      tags: [Issues]
+      summary: A filtered page of issues, ordered by number
+      parameters:
+        - $ref: "#/components/parameters/project"
+        - { name: category, in: query, schema: { type: string, enum: [todo, in_progress, done] } }
+        - { name: type, in: query, schema: { $ref: "#/components/schemas/IssueType" } }
+        - { name: assignee, in: query, description: "A user id, `me` or `none`", schema: { type: string } }
+        - { name: label, in: query, schema: { type: string } }
+        - { name: updatedSince, in: query, schema: { type: string, format: date-time } }
+        - { name: after, in: query, description: Issue number to start after (from `next`), schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  issues: { type: array, items: { $ref: "#/components/schemas/Issue" } }
+                  next: { type: [integer, "null"], description: Pass as `after` for the next page }
+    post:
+      tags: [Issues]
+      summary: Create an issue
+      parameters: [{ $ref: "#/components/parameters/project" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/IssueFields"
+                - required: [title]
+      responses:
+        "200": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Issue" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /api/projects/{id}/issues/{number}:
+    get:
+      tags: [Issues]
+      summary: An issue by its number (42 for ENG-42)
+      parameters:
+        - $ref: "#/components/parameters/project"
+        - { name: number, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Issue" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /api/issues/{id}:
+    get:
+      tags: [Issues]
+      summary: An issue
+      parameters: [{ $ref: "#/components/parameters/issue" }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Issue" } } } }
+    patch:
+      tags: [Issues]
+      summary: Update fields of an issue
+      description: |
+        Send only the fields to change. For free-text fields, also send `base` (the value you started
+        from) to get a 409 instead of overwriting someone else's concurrent edit.
+      parameters: [{ $ref: "#/components/parameters/issue" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/IssueFields"
+                - type: object
+                  properties:
+                    base: { type: object, additionalProperties: { type: string } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Issue" } } } }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Issues]
+      summary: Delete an issue (and its links)
+      parameters: [{ $ref: "#/components/parameters/issue" }]
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /api/issues/{id}/comments:
+    get:
+      tags: [Issues]
+      summary: Comments, oldest first
+      parameters: [{ $ref: "#/components/parameters/issue" }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Comment" } } } } }
+    post:
+      tags: [Issues]
+      summary: Comment (supports @mentions)
+      parameters: [{ $ref: "#/components/parameters/issue" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 20000 } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Comment" } } } }
+
+  /api/projects/{id}/links:
+    get:
+      tags: [Links]
+      summary: Every blocking link in a project
+      parameters: [{ $ref: "#/components/parameters/project" }]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Link" } } } } }
+
+  /api/issues/{id}/blockers:
+    post:
+      tags: [Links]
+      summary: Make another issue block this one
+      description: Rejected with 409 if it would create a dependency cycle.
+      parameters: [{ $ref: "#/components/parameters/issue" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [blockerId], properties: { blockerId: { type: string, format: uuid } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Link" } } } }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /api/issues/{id}/blockers/{blocker}:
+    delete:
+      tags: [Links]
+      summary: Remove a blocking link
+      parameters:
+        - $ref: "#/components/parameters/issue"
+        - { name: blocker, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /api/projects/{id}/forecast:
+    get:
+      tags: [Forecast]
+      summary: The current forecast (critical path schedule plus Monte Carlo confidence)
+      parameters:
+        - $ref: "#/components/parameters/project"
+        - { name: issues, in: query, description: "`false` to omit per-issue dates", schema: { type: boolean, default: true } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Forecast" } } } }
+
+  /api/projects/{id}/snapshots:
+    get:
+      tags: [Forecast]
+      summary: One forecast row per day, recorded by the server
+      parameters: [{ $ref: "#/components/parameters/project" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    day: { type: string, format: date }
+                    finish: { type: [string, "null"], format: date }
+                    finishP85: { type: [string, "null"], format: date }
+                    remaining: { type: number }
+                    openIssues: { type: integer }
+                    blocked: { type: integer }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: A personal API token (`gly_…`)
+  parameters:
+    ws: { name: ws, in: path, required: true, schema: { type: string, format: uuid } }
+    project: { name: id, in: path, required: true, description: Project id, schema: { type: string, format: uuid } }
+    issue: { name: id, in: path, required: true, description: Issue id, schema: { type: string, format: uuid } }
+  responses:
+    Ok:
+      description: OK
+      content: { application/json: { schema: { type: object, properties: { ok: { type: boolean } } } } }
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { type: object, properties: { error: { type: string }, data: {} } }
+  schemas:
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        color: { type: string }
+    Workspace:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        role: { type: string, enum: [admin, member, viewer] }
+    Member:
+      allOf:
+        - $ref: "#/components/schemas/User"
+        - type: object
+          properties:
+            role: { type: string, enum: [admin, member, viewer] }
+            joinedAt: { type: string, format: date-time }
+    Project:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        workspaceId: { type: string, format: uuid }
+        key: { type: string }
+        name: { type: string }
+        description: { type: string }
+        createdAt: { type: string, format: date-time }
+    Status:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        name: { type: string }
+        category: { type: string, enum: [todo, in_progress, done] }
+        position: { type: integer }
+    IssueType: { type: string, enum: [story, task, bug, epic] }
+    IssueFields:
+      type: object
+      properties:
+        title: { type: string, maxLength: 255 }
+        description: { type: string, maxLength: 50000 }
+        type: { $ref: "#/components/schemas/IssueType" }
+        priority: { type: string, enum: [lowest, low, medium, high, highest] }
+        statusId: { type: string, format: uuid }
+        assigneeId: { type: [string, "null"], format: uuid }
+        estimate: { type: number, minimum: 0, maximum: 1000, description: Working days; 0 means not estimated }
+        dueDate: { type: [string, "null"], format: date }
+        labels: { type: array, maxItems: 20, items: { type: string, maxLength: 40 } }
+        epicId: { type: [string, "null"], format: uuid }
+        rank: { type: number }
+    Issue:
+      allOf:
+        - $ref: "#/components/schemas/IssueFields"
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            projectId: { type: string, format: uuid }
+            number: { type: integer }
+            reporterId: { type: [string, "null"], format: uuid }
+            version: { type: integer }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    Link:
+      type: object
+      description: "`blockerId` must be done before `blockedId` can start."
+      properties:
+        blockerId: { type: string, format: uuid }
+        blockedId: { type: string, format: uuid }
+    Comment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        issueId: { type: string, format: uuid }
+        authorId: { type: [string, "null"], format: uuid }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+    Activity:
+      type: object
+      properties:
+        id: { type: integer }
+        issueId: { type: [string, "null"], format: uuid }
+        actorId: { type: [string, "null"], format: uuid }
+        kind: { type: string }
+        data: { type: object }
+        createdAt: { type: string, format: date-time }
+    Forecast:
+      type: object
+      properties:
+        projectId: { type: string, format: uuid }
+        computedAt: { type: string, format: date-time }
+        today: { type: string, format: date }
+        runs: { type: integer, description: Monte Carlo runs }
+        seed: { type: integer, description: Seed used; the same plan always gives the same numbers }
+        remaining: { type: number, description: Working days of open work }
+        finish: { type: [string, "null"], format: date, description: If every estimate holds }
+        finishP50: { type: [string, "null"], format: date }
+        finishP85: { type: [string, "null"], format: date }
+        finishP95: { type: [string, "null"], format: date }
+        p50: { type: number }
+        p85: { type: number }
+        p95: { type: number }
+        histogram: { type: array, items: { type: integer }, description: Runs finishing on each working day from today }
+        criticalPath: { type: array, items: { type: string, format: uuid } }
+        openIssues: { type: integer }
+        blocked: { type: integer }
+        late:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              number: { type: integer }
+              title: { type: string }
+              assigneeId: { type: [string, "null"], format: uuid }
+              dueDate: { type: string, format: date }
+              finish: { type: string, format: date }
+              daysLate: { type: integer }
+        spreads:
+          type: object
+          description: Overrun range (low, high multipliers of the estimate) per issue type
+          additionalProperties: { type: array, items: { type: number }, minItems: 2, maxItems: 2 }
+        calibration:
+          type: object
+          properties:
+            source: { type: string, enum: [default, calibrated] }
+            samples: { type: integer }
+            threshold: { type: integer }
+        quality:
+          type: object
+          properties:
+            openIssues: { type: integer }
+            unestimated: { type: integer }
+            share: { type: number }
+            confidence: { type: string, enum: [high, medium, low] }
+        issues:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              start: { type: string, format: date }
+              finish: { type: string, format: date }
+              daysLate: { type: integer }
+              slack: { type: number }
+              onTime: { type: number, description: Probability of meeting the due date }
+    ImportReport:
+      type: object
+      properties:
+        dryRun: { type: boolean }
+        source: { type: string }
+        format: { type: string, enum: [csv, json] }
+        projects: { type: array, items: { type: object } }
+        issues: { type: object, properties: { total: { type: integer }, created: { type: integer }, updated: { type: integer }, unchanged: { type: integer }, skipped: { type: integer } } }
+        links:
+          type: object
+          properties:
+            total: { type: integer }
+            created: { type: integer }
+            existing: { type: integer }
+            droppedCount: { type: integer }
+            dropped: { type: array, items: { type: object, properties: { blocker: { type: string }, blocked: { type: string }, reason: { type: string } } } }
+        comments: { type: object }
+        statusesCreated: { type: array, items: { type: object } }
+        unmapped: { type: object }
+        warnings: { type: array, items: { type: string } }

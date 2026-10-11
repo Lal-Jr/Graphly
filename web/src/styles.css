@@ -4510,3 +4510,23 @@ select.field-input {
 .signin-actions {
   gap: 8px;
 }
+.token-form .field-input:first-child {
+  flex: 1 1 200px;
+}
+.token-form select.field-input {
+  width: auto;
+}
+.token-fresh {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--accent-bg);
+}
+.token-value {
+  flex: 1;
+  font: 500 13px/20px var(--mono);
+  word-break: break-all;
+  user-select: all;
+}

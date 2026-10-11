@@ -205,3 +205,13 @@ export interface ImportReport {
   unmapped: { types: Record<string, number>; priorities: Record<string, number>; people: Record<string, number>; parents: number }
   warnings: string[]
 }
+
+export interface ApiToken {
+  id: string
+  name: string
+  prefix: string
+  scope: 'read' | 'write'
+  createdAt: string
+  expiresAt: string | null
+  lastUsedAt: string | null
+}

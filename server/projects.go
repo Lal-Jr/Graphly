@@ -6,9 +6,12 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 )
+
+const maxProjectDescription = 10000
 
 var projectKeyRe = regexp.MustCompile(`^[A-Z][A-Z0-9]{1,9}$`)
 
@@ -110,6 +113,9 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, u *User) 
 	if err != nil {
 		return err
 	}
+	if utf8.RuneCountInString(body.Description) > maxProjectDescription {
+		return badRequest("description is too long")
+	}
 	var p Project
 	err = s.inTx(r.Context(), func(tx pgx.Tx) error {
 		assignees := []string{u.ID}
@@ -208,6 +214,9 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request, u *User) 
 			}
 		}
 		if body.Description != nil {
+			if utf8.RuneCountInString(*body.Description) > maxProjectDescription {
+				return badRequest("description is too long")
+			}
 			p.Description = *body.Description
 		}
 		if _, err := tx.Exec(r.Context(), `UPDATE projects SET name = $2, description = $3 WHERE id = $1`, id, p.Name, p.Description); err != nil {

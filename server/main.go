@@ -43,6 +43,8 @@ type Config struct {
 	GoogleClientID, GoogleClientSecret, GitHubClientID, GitHubClientSecret string
 	// Outgoing email. Leave SMTPHost empty to turn email off.
 	SMTPHost, SMTPPort, SMTPUsername, SMTPPassword, SMTPFrom string
+	// Requests per minute per API token.
+	APITokenRateLimit int
 	// Notification delivery: how long to gather a burst into one digest, how often to look, how
 	// many times to try before giving up.
 	DigestWindow         time.Duration
@@ -73,6 +75,7 @@ func loadConfig() Config {
 	cfg.GitHubClientID, cfg.GitHubClientSecret = os.Getenv("GITHUB_CLIENT_ID"), os.Getenv("GITHUB_CLIENT_SECRET")
 	cfg.SMTPHost, cfg.SMTPPort = os.Getenv("SMTP_HOST"), env("SMTP_PORT", "587")
 	cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom = os.Getenv("SMTP_USERNAME"), os.Getenv("SMTP_PASSWORD"), os.Getenv("SMTP_FROM")
+	cfg.APITokenRateLimit = envInt("API_TOKEN_RATE_LIMIT", 600)
 	cfg.DigestWindow = envDuration("NOTIFY_DIGEST_WINDOW", 2*time.Minute)
 	cfg.DeliveryPollInterval = envDuration("NOTIFY_POLL_INTERVAL", 5*time.Second)
 	cfg.DeliveryMaxAttempts = envInt("NOTIFY_MAX_ATTEMPTS", 8)

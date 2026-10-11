@@ -12,6 +12,8 @@ type User struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
 	Color string `json:"color"`
+	// Set when the request authenticated with an API token rather than a session.
+	token *apiToken
 }
 
 type Workspace struct {

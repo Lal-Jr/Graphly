@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api, errorMessage } from '../api'
 import { Sidebar } from '../components/Sidebar'
+import { timeAgo } from '../lib/time'
 import { useSession } from '../store/session'
 import { useTheme, type ThemeMode } from '../store/theme'
-import type { ChannelPrefs, NotificationKind, NotificationSettings, User } from '../types'
+import type { ApiToken, ChannelPrefs, NotificationKind, NotificationSettings, User } from '../types'
 import { Icon } from '../ui/icons'
 import { Avatar, Button } from '../ui/primitives'
 import { useToast } from '../ui/toast'
@@ -73,6 +74,7 @@ export function ProfilePage() {
           </section>
           <SignInCard />
           <NotificationSettingsCard />
+          <ApiTokensCard />
           <section className="settings-card">
             <h2>Appearance</h2>
             <div className="theme-choices">
@@ -197,6 +199,101 @@ function SignInCard() {
             </div>
           )
         })}
+    </section>
+  )
+}
+
+/** Personal API tokens: create (shown once), list with last use, revoke. */
+function ApiTokensCard() {
+  const toast = useToast()
+  const [tokens, setTokens] = useState<ApiToken[] | null>(null)
+  const [draft, setDraft] = useState({ name: '', scope: 'write' as ApiToken['scope'], expiresInDays: '' })
+  const [fresh, setFresh] = useState<string | null>(null)
+  const load = () => api.get<ApiToken[]>('/me/tokens').then(setTokens, () => setTokens([]))
+  useEffect(() => {
+    void load()
+  }, [])
+  return (
+    <section className="settings-card" id="api-tokens">
+      <h2>
+        <Icon name="key" size={18} /> API tokens
+      </h2>
+      <p className="muted small">
+        Tokens let scripts use the <a href="/api/openapi.yaml" target="_blank" rel="noreferrer">Graphly API</a> as you. Send one as{' '}
+        <code>Authorization: Bearer gly_…</code>. Read tokens can only fetch.
+      </p>
+      {fresh && (
+        <div className="token-fresh" role="status">
+          <b>Copy your new token now. You won't see it again.</b>
+          <div className="row">
+            <code className="token-value">{fresh}</code>
+            <Button
+              size="sm"
+              icon={<Icon name="copy" size={14} />}
+              onClick={() => navigator.clipboard.writeText(fresh).then(() => toast('Copied', 'success'))}
+            >
+              Copy
+            </Button>
+          </div>
+        </div>
+      )}
+      <form
+        className="row token-form"
+        onSubmit={async (e) => {
+          e.preventDefault()
+          try {
+            const r = await api.post<{ token: string }>('/me/tokens', {
+              name: draft.name,
+              scope: draft.scope,
+              expiresInDays: draft.expiresInDays ? Number(draft.expiresInDays) : undefined,
+            })
+            setFresh(r.token)
+            setDraft({ ...draft, name: '' })
+            void load()
+          } catch (err) {
+            toast(errorMessage(err), 'error')
+          }
+        }}
+      >
+        <input className="field-input" placeholder="Token name, e.g. CI sync" maxLength={60} required value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+        <select className="field-input" value={draft.scope} onChange={(e) => setDraft({ ...draft, scope: e.target.value as ApiToken['scope'] })} aria-label="Access">
+          <option value="write">Read and write</option>
+          <option value="read">Read only</option>
+        </select>
+        <select className="field-input" value={draft.expiresInDays} onChange={(e) => setDraft({ ...draft, expiresInDays: e.target.value })} aria-label="Expires">
+          <option value="">Never expires</option>
+          <option value="30">30 days</option>
+          <option value="90">90 days</option>
+          <option value="365">1 year</option>
+        </select>
+        <Button type="submit" variant="primary" disabled={!draft.name.trim()}>
+          Create token
+        </Button>
+      </form>
+      {tokens?.map((t) => (
+        <div className="signin-row" key={t.id}>
+          <span>
+            <b>{t.name}</b>
+            <span className="muted small">
+              <span className="mono">{t.prefix}…</span> · {t.scope === 'read' ? 'read only' : 'read and write'} · created {timeAgo(t.createdAt)} ·{' '}
+              {t.lastUsedAt ? `last used ${timeAgo(t.lastUsedAt)}` : 'never used'}
+              {t.expiresAt && ` · expires ${new Date(t.expiresAt).toLocaleDateString()}`}
+            </span>
+          </span>
+          <Button
+            size="sm"
+            variant="subtle"
+            onClick={() =>
+              api.del(`/me/tokens/${t.id}`).then(
+                () => load(),
+                (e) => toast(errorMessage(e), 'error'),
+              )
+            }
+          >
+            Revoke
+          </Button>
+        </div>
+      ))}
     </section>
   )
 }

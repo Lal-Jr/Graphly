@@ -32,6 +32,10 @@ type Server struct {
 	mailer mailer
 	// For outbound calls (Slack, OAuth providers).
 	httpClient *http.Client
+	// Per-token request budget.
+	tokenLimit *rateLimiter
+	// "METHOD /path" of every route an API token may call; must match openapi.yaml.
+	publicRoutes []string
 	// Configured sign-in providers by id (google, github).
 	providers map[string]*oauthProvider
 }
@@ -55,11 +59,15 @@ func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) *Server {
 	if cfg.DeliveryPollInterval == 0 {
 		cfg.DeliveryPollInterval = 5 * time.Second
 	}
+	if cfg.APITokenRateLimit == 0 {
+		cfg.APITokenRateLimit = 600
+	}
 	if cfg.DeliveryMaxAttempts == 0 {
 		cfg.DeliveryMaxAttempts = 8
 	}
 	s := &Server{db: db, hub: hub, cfg: cfg, login: newRateLimiter(10, time.Minute), demo: newRateLimiter(5, 10*time.Minute),
-		forecasts: newForecastCache(256), mailer: newSMTPMailer(cfg), httpClient: outboundClient(), providers: oauthProviders(cfg)}
+		forecasts: newForecastCache(256), mailer: newSMTPMailer(cfg), httpClient: outboundClient(), providers: oauthProviders(cfg),
+		tokenLimit: newRateLimiter(cfg.APITokenRateLimit, time.Minute)}
 	s.onForecast = s.forecastNotifications
 	return s
 }
@@ -205,10 +213,29 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	h := func(pattern string, fn handler) { mux.HandleFunc(pattern, s.wrap(fn)) }
+	// authed routes need a signed-in session; api routes also accept API tokens and form the
+	// public, documented surface (openapi.yaml).
 	authed := func(pattern string, fn func(w http.ResponseWriter, r *http.Request, u *User) error) {
 		mux.HandleFunc(pattern, s.wrap(func(w http.ResponseWriter, r *http.Request) error {
 			u, err := s.currentUser(r)
 			if err != nil {
+				return err
+			}
+			if u.token != nil {
+				return errStatus(http.StatusForbidden, "API tokens can't use this endpoint")
+			}
+			return fn(w, r, u)
+		}))
+	}
+	s.publicRoutes = nil
+	api := func(pattern string, fn func(w http.ResponseWriter, r *http.Request, u *User) error) {
+		s.publicRoutes = append(s.publicRoutes, pattern)
+		mux.HandleFunc(pattern, s.wrap(func(w http.ResponseWriter, r *http.Request) error {
+			u, err := s.currentUser(r)
+			if err != nil {
+				return err
+			}
+			if err := s.apiGate(w, r, u); err != nil {
 				return err
 			}
 			return fn(w, r, u)
@@ -232,39 +259,47 @@ func (s *Server) Routes() http.Handler {
 	authed("GET /api/me/identities", s.listIdentities)
 	authed("DELETE /api/me/identities/{provider}", s.unlinkIdentity)
 	authed("PUT /api/me/password", s.setPassword)
-	authed("GET /api/me", s.me)
+	api("GET /api/me", s.me)
+	authed("GET /api/me/tokens", s.listTokens)
+	authed("POST /api/me/tokens", s.createToken)
+	authed("DELETE /api/me/tokens/{id}", s.revokeToken)
+	h("GET /api/openapi.yaml", s.openAPISpec)
 	authed("PATCH /api/me", s.updateMe)
 
 	authed("POST /api/workspaces", s.createWorkspace)
 	authed("PATCH /api/workspaces/{ws}", s.updateWorkspace)
-	authed("GET /api/workspaces/{ws}/members", s.listMembers)
+	api("GET /api/workspaces/{ws}/members", s.listMembers)
 	authed("PATCH /api/workspaces/{ws}/members/{user}", s.updateMember)
 	authed("DELETE /api/workspaces/{ws}/members/{user}", s.removeMember)
 	authed("POST /api/workspaces/{ws}/invites", s.createInvite)
-	authed("POST /api/workspaces/{ws}/import", s.importHandler)
+	api("POST /api/workspaces/{ws}/import", s.importHandler)
 	h("GET /api/invites/{token}", s.previewInvite)
 	authed("POST /api/invites/{token}/accept", s.acceptInvite)
 
-	authed("GET /api/workspaces/{ws}/projects", s.listProjects)
-	authed("POST /api/workspaces/{ws}/projects", s.createProject)
+	api("GET /api/workspaces/{ws}/projects", s.listProjects)
+	api("POST /api/workspaces/{ws}/projects", s.createProject)
 	authed("GET /api/workspaces/{ws}/my-work", s.myWork)
-	authed("GET /api/projects/{id}", s.getProject)
-	authed("PATCH /api/projects/{id}", s.updateProject)
+	api("GET /api/projects/{id}", s.getProject)
+	api("PATCH /api/projects/{id}", s.updateProject)
 	authed("DELETE /api/projects/{id}", s.deleteProject)
 	authed("GET /api/projects/{id}/live", s.live)
-	authed("GET /api/projects/{id}/activity", s.projectActivity)
+	api("GET /api/projects/{id}/activity", s.projectActivity)
 
 	authed("POST /api/projects/{id}/statuses", s.createStatus)
 	authed("PATCH /api/statuses/{id}", s.updateStatus)
 	authed("DELETE /api/statuses/{id}", s.deleteStatus)
 
-	authed("POST /api/projects/{id}/issues", s.createIssue)
-	authed("PATCH /api/issues/{id}", s.updateIssue)
-	authed("DELETE /api/issues/{id}", s.deleteIssue)
-	authed("POST /api/issues/{id}/blockers", s.addBlocker)
-	authed("DELETE /api/issues/{id}/blockers/{blocker}", s.removeBlocker)
-	authed("GET /api/issues/{id}/comments", s.listComments)
-	authed("POST /api/issues/{id}/comments", s.addComment)
+	api("GET /api/projects/{id}/issues", s.listIssues)
+	api("GET /api/projects/{id}/issues/{number}", s.getIssueByNumber)
+	api("GET /api/projects/{id}/links", s.listLinks)
+	api("POST /api/projects/{id}/issues", s.createIssue)
+	api("GET /api/issues/{id}", s.getIssue)
+	api("PATCH /api/issues/{id}", s.updateIssue)
+	api("DELETE /api/issues/{id}", s.deleteIssue)
+	api("POST /api/issues/{id}/blockers", s.addBlocker)
+	api("DELETE /api/issues/{id}/blockers/{blocker}", s.removeBlocker)
+	api("GET /api/issues/{id}/comments", s.listComments)
+	api("POST /api/issues/{id}/comments", s.addComment)
 	authed("DELETE /api/comments/{id}", s.deleteComment)
 	authed("GET /api/issues/{id}/activity", s.issueActivity)
 	authed("GET /api/issues/{id}/prs", s.listPRs)
@@ -278,9 +313,9 @@ func (s *Server) Routes() http.Handler {
 	authed("GET /api/me/notification-settings", s.getNotificationSettings)
 	authed("PUT /api/me/notification-settings", s.updateNotificationSettings)
 
-	authed("GET /api/projects/{id}/forecast", s.getForecast)
+	api("GET /api/projects/{id}/forecast", s.getForecast)
 	authed("PUT /api/projects/{id}/snapshot", s.putSnapshot)
-	authed("GET /api/projects/{id}/snapshots", s.listSnapshots)
+	api("GET /api/projects/{id}/snapshots", s.listSnapshots)
 	authed("GET /api/projects/{id}/github", s.githubStatus)
 	authed("POST /api/projects/{id}/github", s.enableGitHub)
 	authed("DELETE /api/projects/{id}/github", s.disableGitHub)

@@ -51,6 +51,9 @@ func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, q quer
 }
 
 func (s *Server) currentUser(r *http.Request) (*User, error) {
+	if raw, ok := bearer(r); ok {
+		return s.tokenUser(r.Context(), raw)
+	}
 	c, err := r.Cookie(sessionCookie)
 	if err != nil || c.Value == "" {
 		return nil, errUnauthorized
@@ -265,6 +268,12 @@ func newRateLimiter(limit int, per time.Duration) *rateLimiter {
 }
 
 func (l *rateLimiter) allow(key string) bool {
+	ok, _, _ := l.check(key)
+	return ok
+}
+
+// check counts a hit and reports whether it's allowed, how many remain and when the window resets.
+func (l *rateLimiter) check(key string) (bool, int, time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
@@ -277,11 +286,11 @@ func (l *rateLimiter) allow(key string) bool {
 	}
 	w := l.hits[key]
 	if w == nil || now.Sub(w.start) > l.window {
-		l.hits[key] = &window{start: now, n: 1}
-		return true
+		w = &window{start: now}
+		l.hits[key] = w
 	}
 	w.n++
-	return w.n <= l.limit
+	return w.n <= l.limit, max(0, l.limit-w.n), w.start.Add(l.window)
 }
 
 // clientIP is the caller's address for rate limiting. Behind a proxy that sets a trusted header
