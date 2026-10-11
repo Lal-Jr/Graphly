@@ -80,7 +80,7 @@ export interface Activity {
   id: number
   issueId: string | null
   actorId: string | null
-  kind: 'created' | 'updated' | 'deleted' | 'unblocked' | 'blocker.add' | 'blocker.remove' | 'pr'
+  kind: 'created' | 'updated' | 'deleted' | 'unblocked' | 'blocker.add' | 'blocker.remove' | 'pr' | 'commit'
   data: Record<string, unknown>
   createdAt: string
 }
@@ -103,6 +103,7 @@ export interface MyWorkItem extends Issue {
 }
 
 export interface PullRequest {
+  provider: 'github' | 'gitlab'
   repo: string
   number: number
   title: string
@@ -110,6 +111,17 @@ export interface PullRequest {
   state: 'open' | 'draft' | 'merged' | 'closed'
   author: string
   updatedAt: string
+}
+
+export interface Commit {
+  provider: 'github' | 'gitlab'
+  repo: string
+  sha: string
+  message: string
+  url: string
+  author: string
+  branch: string
+  committedAt: string | null
 }
 
 export interface ForecastSnapshot {

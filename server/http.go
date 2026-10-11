@@ -306,6 +306,7 @@ func (s *Server) Routes() http.Handler {
 	authed("DELETE /api/comments/{id}", s.deleteComment)
 	authed("GET /api/issues/{id}/activity", s.issueActivity)
 	authed("GET /api/issues/{id}/prs", s.listPRs)
+	authed("GET /api/issues/{id}/commits", s.listCommits)
 	authed("GET /api/issues/{id}/watch", s.getWatch)
 	authed("PUT /api/issues/{id}/watch", s.setWatch)
 	authed("DELETE /api/issues/{id}/watch", s.setWatch)
@@ -324,6 +325,11 @@ func (s *Server) Routes() http.Handler {
 	authed("DELETE /api/projects/{id}/github", s.disableGitHub)
 	// Signed by GitHub, not by a session; same-origin checks don't apply (see middleware).
 	h("POST /api/hooks/github/{id}", s.githubWebhook)
+	authed("GET /api/projects/{id}/gitlab", s.gitlabStatus)
+	authed("POST /api/projects/{id}/gitlab", s.enableGitLab)
+	authed("DELETE /api/projects/{id}/gitlab", s.disableGitLab)
+	// Authenticated by X-Gitlab-Token, not by a session.
+	h("POST /api/hooks/gitlab/{id}", s.gitlabWebhook)
 
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})

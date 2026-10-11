@@ -25,6 +25,7 @@ import (
 // Issues only ever move forward, so a late webhook can't drag finished work backwards.
 
 type PullRequest struct {
+	Provider  string    `json:"provider"`
 	Repo      string    `json:"repo"`
 	Number    int       `json:"number"`
 	Title     string    `json:"title"`
@@ -99,16 +100,19 @@ func (s *Server) listPRs(w http.ResponseWriter, r *http.Request, u *User) error 
 	if _, err := s.issueRole(r.Context(), s.db, id, u, roleViewer); err != nil {
 		return err
 	}
-	prs, err := collect(scanPR)(s.db.Query(r.Context(), `SELECT repo, number, title, url, state, author, updated_at FROM issue_prs WHERE issue_id = $1 ORDER BY updated_at DESC`, id))
+	prs, err := collect(scanPR)(s.db.Query(r.Context(), `SELECT provider, repo, number, title, url, state, author, updated_at FROM issue_prs WHERE issue_id = $1 ORDER BY updated_at DESC`, id))
 	if err != nil {
 		return err
+	}
+	if prs == nil {
+		prs = []PullRequest{}
 	}
 	return ok(w, prs)
 }
 
 func scanPR(row pgx.Row) (PullRequest, error) {
 	var p PullRequest
-	return p, row.Scan(&p.Repo, &p.Number, &p.Title, &p.URL, &p.State, &p.Author, &p.UpdatedAt)
+	return p, row.Scan(&p.Provider, &p.Repo, &p.Number, &p.Title, &p.URL, &p.State, &p.Author, &p.UpdatedAt)
 }
 
 type prEvent struct {
@@ -157,6 +161,8 @@ func (s *Server) githubWebhook(w http.ResponseWriter, r *http.Request) error {
 	case "ping":
 		return ok(w, map[string]string{"ok": "pong"})
 	case "pull_request":
+	case "push":
+		return s.githubPush(w, r, projectID, key, body)
 	default:
 		return ok(w, map[string]string{"ignored": r.Header.Get("X-GitHub-Event")})
 	}
@@ -165,12 +171,13 @@ func (s *Server) githubWebhook(w http.ResponseWriter, r *http.Request) error {
 		return badRequest("invalid payload")
 	}
 	pr := PullRequest{
-		Repo:   ev.Repository.FullName,
-		Number: ev.PullRequest.Number,
-		Title:  ev.PullRequest.Title,
-		URL:    ev.PullRequest.HTMLURL,
-		Author: ev.PullRequest.User.Login,
-		State:  prState(ev),
+		Provider: "github",
+		Repo:     ev.Repository.FullName,
+		Number:   ev.PullRequest.Number,
+		Title:    ev.PullRequest.Title,
+		URL:      ev.PullRequest.HTMLURL,
+		Author:   ev.PullRequest.User.Login,
+		State:    prState(ev),
 	}
 	if pr.Repo == "" || pr.Number == 0 || !strings.HasPrefix(pr.URL, "https://") {
 		return badRequest("not a pull request payload")
@@ -246,12 +253,13 @@ func (s *Server) applyPR(ctx context.Context, tx pgx.Tx, projectID string, numbe
 	}
 	pr.UpdatedAt = time.Now()
 	var prevState *string
-	_ = tx.QueryRow(ctx, `SELECT state FROM issue_prs WHERE issue_id = $1 AND repo = $2 AND number = $3`, issueID, pr.Repo, pr.Number).Scan(&prevState)
+	_ = tx.QueryRow(ctx, `SELECT state FROM issue_prs WHERE issue_id = $1 AND provider = $2 AND repo = $3 AND number = $4`,
+		issueID, pr.Provider, pr.Repo, pr.Number).Scan(&prevState)
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO issue_prs (issue_id, repo, number, title, url, state, author, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, now())
-		ON CONFLICT (issue_id, repo, number) DO UPDATE SET title = EXCLUDED.title, url = EXCLUDED.url, state = EXCLUDED.state,
+		INSERT INTO issue_prs (issue_id, provider, repo, number, title, url, state, author, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+		ON CONFLICT (issue_id, provider, repo, number) DO UPDATE SET title = EXCLUDED.title, url = EXCLUDED.url, state = EXCLUDED.state,
 			author = EXCLUDED.author, updated_at = now()`,
-		issueID, pr.Repo, pr.Number, pr.Title, pr.URL, pr.State, pr.Author); err != nil {
+		issueID, pr.Provider, pr.Repo, pr.Number, pr.Title, pr.URL, pr.State, pr.Author); err != nil {
 		return false, err
 	}
 	if err := publish(ctx, tx, projectID, "pr.update", map[string]any{"issueId": issueID, "pr": pr}); err != nil {
@@ -259,7 +267,7 @@ func (s *Server) applyPR(ctx context.Context, tx pgx.Tx, projectID string, numbe
 	}
 	if prevState == nil || *prevState != pr.State {
 		if err := logActivity(ctx, tx, projectID, &issueID, nil, "pr", map[string]any{
-			"state": pr.State, "repo": pr.Repo, "number": pr.Number, "url": pr.URL, "title": pr.Title, "author": pr.Author,
+			"state": pr.State, "repo": pr.Repo, "number": pr.Number, "url": pr.URL, "title": pr.Title, "author": pr.Author, "provider": pr.Provider,
 		}); err != nil {
 			return false, err
 		}
@@ -269,53 +277,13 @@ func (s *Server) applyPR(ctx context.Context, tx pgx.Tx, projectID string, numbe
 	var target string
 	switch {
 	case pr.State == "merged":
-		target = `SELECT id, position FROM statuses WHERE project_id = $1 AND category = 'done' ORDER BY position LIMIT 1`
-	case pr.State == "open" && action != "synchronize" && action != "edited":
-		target = `SELECT id, position FROM statuses WHERE project_id = $1 AND category = 'in_progress'
-			ORDER BY (name ILIKE '%review%') DESC, position DESC LIMIT 1`
+		target = targetDone
+	case pr.State == "open" && action != "synchronize" && action != "edited" && action != "update":
+		target = targetReview
 	case pr.State == "draft":
-		target = `SELECT id, position FROM statuses WHERE project_id = $1 AND category = 'in_progress' ORDER BY position LIMIT 1`
+		target = targetStarted
 	default:
 		return false, nil
 	}
-	var targetID string
-	var targetPos int
-	if err := tx.QueryRow(ctx, target, projectID).Scan(&targetID, &targetPos); err != nil {
-		if err == pgx.ErrNoRows {
-			return false, nil
-		}
-		return false, err
-	}
-	before, err := loadIssue(ctx, tx, issueID, false)
-	if err != nil {
-		return false, err
-	}
-	var curPos int
-	var curCat string
-	if err := tx.QueryRow(ctx, `SELECT position, category FROM statuses WHERE id = $1`, before.StatusID).Scan(&curPos, &curCat); err != nil {
-		return false, err
-	}
-	if curCat == "done" || curPos >= targetPos {
-		return false, nil
-	}
-	after, err := scanIssue(tx.QueryRow(ctx, `UPDATE issues AS i SET status_id = $2, version = version + 1, updated_at = now()
-		WHERE id = $1 RETURNING `+issueCols, issueID, targetID))
-	if err != nil {
-		return false, err
-	}
-	if err := publish(ctx, tx, projectID, "issue.upsert", map[string]any{"issue": after}); err != nil {
-		return false, err
-	}
-	if err := logActivity(ctx, tx, projectID, &issueID, nil, "updated", map[string]any{
-		"field": "status", "from": before.StatusID, "to": after.StatusID, "via": "github", "pr": pr.Number,
-	}); err != nil {
-		return false, err
-	}
-	if err := s.syncLifecycle(ctx, tx, []string{issueID}); err != nil {
-		return false, err
-	}
-	if err := s.noteStatusChange(ctx, tx, projectID, before, after, nil, "GitHub"); err != nil {
-		return false, err
-	}
-	return true, s.noteUnblocked(ctx, tx, projectID, before, after, nil)
+	return s.advance(ctx, tx, projectID, issueID, target, pr.Provider, map[string]any{"pr": pr.Number})
 }

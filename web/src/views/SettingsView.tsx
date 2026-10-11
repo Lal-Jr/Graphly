@@ -195,7 +195,8 @@ export function SettingsView() {
           )}
         </section>
 
-        <GitHubCard isAdmin={isProjectAdmin} />
+        <HookCard provider="github" isAdmin={isProjectAdmin} />
+        <HookCard provider="gitlab" isAdmin={isProjectAdmin} />
 
         {isAdmin && (
           <section className="settings-card">
@@ -358,57 +359,78 @@ function WorkflowEditor() {
   )
 }
 
-/** Connect a repository so pull requests move issues on their own. */
-function GitHubCard({ isAdmin }: { isAdmin: boolean }) {
+const HOOKS = {
+  github: {
+    name: 'GitHub',
+    secretLabel: 'Secret',
+    settings: (
+      <>
+        Content type <code>application/json</code>, and send <b>Pull requests</b> and <b>Pushes</b> events.
+      </>
+    ),
+  },
+  gitlab: {
+    name: 'GitLab',
+    secretLabel: 'Secret token',
+    settings: (
+      <>
+        Trigger on <b>Merge request events</b> and <b>Push events</b>.
+      </>
+    ),
+  },
+} as const
+
+/** Connect a repository so pull/merge requests and commits move issues on their own. */
+function HookCard({ provider, isAdmin }: { provider: keyof typeof HOOKS; isAdmin: boolean }) {
   const d = useProject()
   const toast = useToast()
   const [state, setState] = useState<{ enabled: boolean; path: string; secret?: string } | null>(null)
   const id = d.project?.id
+  const meta = HOOKS[provider]
   useEffect(() => {
-    if (id) api.get<{ enabled: boolean; path: string }>(`/projects/${id}/github`).then(setState, () => {})
-  }, [id])
+    if (id) api.get<{ enabled: boolean; path: string }>(`/projects/${id}/${provider}`).then(setState, () => {})
+  }, [id, provider])
   if (!state) return null
   const url = `${location.origin}${state.path}`
   const copy = (v: string, what: string) => navigator.clipboard.writeText(v).then(() => toast(`${what} copied`, 'success'))
+  const request = provider === 'gitlab' ? 'merge request' : 'pull request'
   return (
     <section className="settings-card">
       <h2>
-        <Icon name="link" size={16} /> GitHub
+        <Icon name="link" size={16} /> {meta.name}
       </h2>
       <p className="muted">
-        Mention an issue key such as <code>{d.project?.key}-12</code> in a pull request's title, branch or description. Opening the PR
-        moves the issue to review, merging moves it to done and unblocks whatever was waiting on it, and the PR appears on the
-        issue. Nobody has to update tickets by hand.
+        Mention an issue key such as <code>{d.project?.key}-12</code> in a {request}'s title, branch or description, or in a branch
+        name or commit message. A new branch or commit moves the issue to in progress, opening the {request} moves it to review, and
+        merging moves it to done and unblocks whatever was waiting on it. Issues only ever move forward.
       </p>
       {state.enabled ? (
         <>
           <div className="gh-grid">
-            <span className="muted small">Payload URL</span>
+            <span className="muted small">{provider === 'gitlab' ? 'URL' : 'Payload URL'}</span>
             <span className="row">
               <input className="field-input mono" readOnly value={url} onFocus={(e) => e.target.select()} />
-              <Button size="sm" icon={<Icon name="copy" size={14} />} onClick={() => copy(url, 'Payload URL')} />
+              <Button size="sm" icon={<Icon name="copy" size={14} />} onClick={() => copy(url, 'URL')} />
             </span>
-            <span className="muted small">Secret</span>
+            <span className="muted small">{meta.secretLabel}</span>
             {state.secret ? (
               <span className="row">
                 <input className="field-input mono" readOnly value={state.secret} onFocus={(e) => e.target.select()} />
-                <Button size="sm" icon={<Icon name="copy" size={14} />} onClick={() => copy(state.secret!, 'Secret')} />
+                <Button size="sm" icon={<Icon name="copy" size={14} />} onClick={() => copy(state.secret!, meta.secretLabel)} />
               </span>
             ) : (
               <span className="muted small">Hidden. Regenerate it if you need to set it again.</span>
             )}
             <span className="muted small">Settings</span>
-            <span className="small">
-              Content type <code>application/json</code>, and send only <b>Pull requests</b> events.
-            </span>
+            <span className="small">{meta.settings}</span>
           </div>
           {state.secret && <p className="small text-warning">Copy the secret now. It won't be shown again.</p>}
           {isAdmin && (
             <div className="row">
-              <Button size="sm" onClick={() => api.post<typeof state>(`/projects/${id}/github`).then(setState)}>
+              <Button size="sm" onClick={() => api.post<typeof state>(`/projects/${id}/${provider}`).then(setState)}>
                 Regenerate secret
               </Button>
-              <Button size="sm" variant="subtle" onClick={() => api.del<typeof state>(`/projects/${id}/github`).then(() => setState({ ...state, enabled: false, secret: undefined }))}>
+              <Button size="sm" variant="subtle" onClick={() => api.del<typeof state>(`/projects/${id}/${provider}`).then(() => setState({ ...state, enabled: false, secret: undefined }))}>
                 Disconnect
               </Button>
             </div>
@@ -416,12 +438,12 @@ function GitHubCard({ isAdmin }: { isAdmin: boolean }) {
         </>
       ) : isAdmin ? (
         <div>
-          <Button variant="primary" icon={<Icon name="link" size={16} />} onClick={() => api.post<typeof state>(`/projects/${id}/github`).then(setState, (e) => toast(errorMessage(e), 'error'))}>
-            Connect GitHub
+          <Button variant="primary" icon={<Icon name="link" size={16} />} onClick={() => api.post<typeof state>(`/projects/${id}/${provider}`).then(setState, (e) => toast(errorMessage(e), 'error'))}>
+            Connect {meta.name}
           </Button>
         </div>
       ) : (
-        <p className="muted small">Ask a workspace admin to connect a repository.</p>
+        <p className="muted small">Ask a project admin to connect a repository.</p>
       )}
     </section>
   )

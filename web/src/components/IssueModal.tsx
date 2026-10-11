@@ -6,7 +6,7 @@ import { timeAgo } from '../lib/time'
 import { useIssueParam } from '../store/nav'
 import { useSession } from '../store/session'
 import { useProject, useViewers } from '../store/useProject'
-import { PRIORITY_LABEL, TYPE_LABEL, type Activity, type Comment, type Issue, type PullRequest } from '../types'
+import { PRIORITY_LABEL, TYPE_LABEL, type Activity, type Comment, type Issue, type PullRequest, type Commit } from '../types'
 import { Icon, TypeIcon } from '../ui/icons'
 import { Avatar, AvatarStack, Button, ConfirmDialog, InlineEdit, Lozenge, MenuList, Modal, Popover } from '../ui/primitives'
 import { useToast } from '../ui/toast'
@@ -440,39 +440,62 @@ function Dependencies({ issue }: { issue: Issue }) {
   )
 }
 
-/** Pull requests that mention this issue's key, kept current by the GitHub webhook. */
+/** Pull/merge requests and commits that mention this issue's key, kept current by the GitHub and GitLab webhooks. */
 function Development({ issue }: { issue: Issue }) {
   const d = useProject()
   const [prs, setPrs] = useState<PullRequest[]>([])
+  const [commits, setCommits] = useState<Commit[]>([])
   useEffect(() => {
     let live = true
+    const loadCommits = () => api.get<Commit[]>(`/issues/${issue.id}/commits`).then((c) => live && setCommits(c), () => {})
     api.get<PullRequest[]>(`/issues/${issue.id}/prs`).then((p) => live && setPrs(p), () => {})
+    void loadCommits()
     const off = d.store.onFeed((e) => {
       if (e.type === 'pr.update' && e.issueId === issue.id)
-        setPrs((cur) => [e.pr, ...cur.filter((p) => !(p.repo === e.pr.repo && p.number === e.pr.number))])
+        setPrs((cur) => [e.pr, ...cur.filter((p) => !(p.provider === e.pr.provider && p.repo === e.pr.repo && p.number === e.pr.number))])
+      if (e.type === 'commit.link' && e.issueId === issue.id) void loadCommits()
     })
     return () => {
       live = false
       off()
     }
   }, [issue.id, d.store])
-  if (prs.length === 0) return null
+  if (prs.length === 0 && commits.length === 0) return null
   return (
     <section className="development">
       <h4>Development</h4>
-      <ul>
-        {prs.map((p) => (
-          <li key={`${p.repo}#${p.number}`}>
-            <a href={p.url} target="_blank" rel="noreferrer" className="pr-row">
-              <span className={`pr-state pr-${p.state}`}>{p.state}</span>
-              <span className="truncate">{p.title}</span>
-              <span className="muted small">
-                {p.repo}#{p.number} · {p.author}
-              </span>
-            </a>
-          </li>
-        ))}
-      </ul>
+      {prs.length > 0 && (
+        <ul>
+          {prs.map((p) => (
+            <li key={`${p.provider}:${p.repo}#${p.number}`}>
+              <a href={p.url} target="_blank" rel="noreferrer" className="pr-row">
+                <span className={`pr-state pr-${p.state}`}>{p.state}</span>
+                <span className="truncate">{p.title}</span>
+                <span className="muted small">
+                  {p.repo}
+                  {p.provider === 'gitlab' ? '!' : '#'}
+                  {p.number} · {p.author}
+                </span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      {commits.length > 0 && (
+        <ul className="commit-list">
+          {commits.map((c) => (
+            <li key={`${c.provider}:${c.repo}@${c.sha}`}>
+              <a href={c.url} target="_blank" rel="noreferrer" className="pr-row">
+                <code className="commit-sha">{c.sha.slice(0, 7)}</code>
+                <span className="truncate">{c.message}</span>
+                <span className="muted small">
+                  {c.branch || c.repo} · {c.author}
+                </span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }
@@ -717,7 +740,7 @@ function ActivityPanel({ issue }: { issue: Issue }) {
             <li key={a.id}>
               <Avatar user={a.actorId ? d.memberMap.get(a.actorId) : null} size={24} />
               <span>
-                <b>{a.actorId ? (d.memberMap.get(a.actorId)?.name ?? 'Former member') : 'GitHub'}</b> {describe(a, d)}{' '}
+                <b>{a.actorId ? (d.memberMap.get(a.actorId)?.name ?? 'Former member') : (a.data as { provider?: string }).provider === 'gitlab' || (a.data as { via?: string }).via === 'gitlab' ? 'GitLab' : 'GitHub'}</b> {describe(a, d)}{' '}
                 <span className="muted small">{timeAgo(a.createdAt)}</span>
               </span>
             </li>
@@ -747,10 +770,23 @@ function describe(a: Activity, d: ReturnType<typeof useProject>): React.ReactNod
     case 'pr':
       return (
         <>
-          {data.state === 'merged' ? 'merged' : data.state === 'closed' ? 'closed' : data.state === 'draft' ? 'opened a draft of' : 'opened'} pull request{' '}
+          {data.state === 'merged' ? 'merged' : data.state === 'closed' ? 'closed' : data.state === 'draft' ? 'opened a draft of' : 'opened'}{' '}
+          {data.provider === 'gitlab' ? 'merge request' : 'pull request'}{' '}
           <a href={String(data.url)} target="_blank" rel="noreferrer">
-            {String(data.repo)}#{String(data.number)}
+            {String(data.repo)}
+            {data.provider === 'gitlab' ? '!' : '#'}
+            {String(data.number)}
           </a>
+        </>
+      )
+    case 'commit':
+      return (
+        <>
+          linked commit{' '}
+          <a href={String(data.url)} target="_blank" rel="noreferrer">
+            <code>{String(data.sha).slice(0, 7)}</code>
+          </a>{' '}
+          on {String(data.branch)}
         </>
       )
     case 'blocker.add':
@@ -761,8 +797,13 @@ function describe(a: Activity, d: ReturnType<typeof useProject>): React.ReactNod
       const f = String(data.field)
       const from = data.from
       const to = data.to
-      if (f === 'status' && data.via === 'github')
-        return <>moved this to <b>{d.statusMap.get(String(to))?.name ?? '?'}</b> from PR #{String(data.pr)}</>
+      if (f === 'status' && (data.via === 'github' || data.via === 'gitlab'))
+        return (
+          <>
+            moved this to <b>{d.statusMap.get(String(to))?.name ?? '?'}</b>{' '}
+            {data.pr != null ? <>from {data.via === 'gitlab' ? 'MR !' : 'PR #'}{String(data.pr)}</> : <>from branch {String(data.branch)}</>}
+          </>
+        )
       if (f === 'status') return <>changed status from <b>{d.statusMap.get(String(from))?.name ?? '?'}</b> to <b>{d.statusMap.get(String(to))?.name ?? '?'}</b></>
       if (f === 'assignee') return to ? <>assigned this to <b>{d.memberMap.get(String(to))?.name ?? 'someone'}</b></> : 'unassigned this'
       if (f === 'priority') return <>changed priority to <b>{PRIORITY_LABEL[to as keyof typeof PRIORITY_LABEL] ?? String(to)}</b></>

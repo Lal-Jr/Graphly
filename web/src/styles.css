@@ -4589,3 +4589,10 @@ fieldset.plain-fieldset:disabled [contenteditable] {
     gap: 2px;
   }
 }
+.commit-list {
+  margin-top: 8px;
+}
+.commit-sha {
+  font: 600 11.5px/1 var(--mono);
+  color: var(--text-subtle);
+}

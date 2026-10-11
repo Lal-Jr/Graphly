@@ -44,8 +44,9 @@ type ServerEvent =
   | { type: 'comment.delete'; id: string; issueId: string }
   | { type: 'activity.add'; activity: Activity }
   | { type: 'pr.update'; issueId: string; pr: PullRequest }
+  | { type: 'commit.link'; issueId: string }
 
-export type FeedEvent = Extract<ServerEvent, { type: 'comment.add' | 'comment.delete' | 'activity.add' | 'pr.update' }>
+export type FeedEvent = Extract<ServerEvent, { type: 'comment.add' | 'comment.delete' | 'activity.add' | 'pr.update' | 'commit.link' }>
 
 const byRank = (a: Issue, b: Issue) => a.rank - b.rank || a.number - b.number
 const sameLink = (a: Link, b: Link) => a.blockerId === b.blockerId && a.blockedId === b.blockedId
