@@ -13,6 +13,11 @@ info:
     Every response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset`
     (Unix seconds); over the limit you get `429` with `Retry-After`.
 
+    **Permissions.** Workspace roles are admin, member and viewer; a project can override someone's
+    role there (admin, editor, viewer). Viewers can only read; editors change issues, links and
+    comments; project admins also change settings and the workflow. A missing permission is `403`;
+    a project or issue you can't see is `404`.
+
     **Errors** are JSON: `{"error": "message"}`, with a `data` field on some conflicts.
 
     **Dates** are `YYYY-MM-DD`. Estimates are working days. Forecasts are computed on the server in
@@ -142,6 +147,7 @@ paths:
                   links: { type: array, items: { $ref: "#/components/schemas/Link" } }
                   members: { type: array, items: { $ref: "#/components/schemas/Member" } }
                   seq: { type: integer, description: Realtime cursor }
+                  role: { type: string, enum: [admin, editor, viewer], description: Your role in this project }
     patch:
       tags: [Projects]
       summary: Rename or describe a project
@@ -156,6 +162,29 @@ paths:
                 description: { type: string, maxLength: 10000 }
       responses:
         "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+
+  /api/projects/{id}/members:
+    get:
+      tags: [Projects]
+      summary: Everyone's role in the project
+      description: |
+        Effective role is `admin` for workspace admins; otherwise the project override if set;
+        otherwise `editor` for workspace members and `viewer` for workspace viewers.
+      parameters: [{ $ref: "#/components/parameters/project" }]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    userId: { type: string, format: uuid }
+                    workspaceRole: { type: string, enum: [admin, member, viewer] }
+                    override: { type: [string, "null"], enum: [admin, editor, viewer, null] }
+                    role: { type: string, enum: [admin, editor, viewer] }
 
   /api/projects/{id}/activity:
     get:

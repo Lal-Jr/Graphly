@@ -13,7 +13,11 @@ export interface ProjectState {
   links: Link[]
   members: Member[]
   presence: PresenceUser[]
+  /** The current user's role in this project. Viewers get a read-only UI; the server enforces it. */
+  role: ProjectRole
 }
+
+export type ProjectRole = 'viewer' | 'editor' | 'admin'
 
 interface Snapshot {
   project: Project
@@ -22,6 +26,7 @@ interface Snapshot {
   links: Link[]
   members: Member[]
   seq: number
+  role: ProjectRole
 }
 
 type ServerEvent =
@@ -33,6 +38,7 @@ type ServerEvent =
   | { type: 'project.update'; project: Project }
   | { type: 'project.delete'; id: string }
   | { type: 'project.reload' }
+  | { type: 'access.changed'; userId: string }
   | { type: 'member.join'; member: Member }
   | { type: 'comment.add'; comment: Comment }
   | { type: 'comment.delete'; id: string; issueId: string }
@@ -60,6 +66,7 @@ export class ProjectStore {
     links: [],
     members: [],
     presence: [],
+    role: 'viewer',
   }
   private listeners = new Set<() => void>()
   private feedListeners = new Set<(e: FeedEvent) => void>()
@@ -123,6 +130,7 @@ export class ProjectStore {
         issues: [...snap.issues].sort(byRank),
         links: snap.links,
         members: snap.members,
+        role: snap.role,
       })
     } catch (e) {
       this.set({ phase: 'error', error: e instanceof ApiError && e.status === 404 ? 'not-found' : errorMessage(e) })
@@ -194,6 +202,7 @@ export class ProjectStore {
         this.set({ deleted: true })
         this.stop()
         break
+      case 'access.changed':
       case 'project.reload':
         // A bulk change (an import): fetch a fresh snapshot instead of replaying it.
         void this.load()

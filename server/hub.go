@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -64,6 +66,8 @@ type client struct {
 	projectID string
 	send      chan []byte
 	user      PresenceUser
+	// Signalled when this user's access to the project may have changed.
+	recheck chan struct{}
 }
 
 // Hub fans events out to this instance's WebSocket clients. Every instance LISTENs on the same
@@ -127,6 +131,13 @@ func (h *Hub) listen(ctx context.Context) error {
 				slog.Warn("load event", "id", id, "err", err)
 				continue
 			}
+			var head struct {
+				Type   string `json:"type"`
+				UserID string `json:"userId"`
+			}
+			if json.Unmarshal(payload, &head) == nil && head.Type == "access.changed" {
+				h.recheck(projectID, head.UserID)
+			}
 			h.broadcast(projectID, envelope("event", map[string]any{"seq": id, "event": payload}))
 		case presenceChannel:
 			var m presenceMsg
@@ -173,7 +184,7 @@ func (h *Hub) resyncAll() {
 func (h *Hub) register(projectID string, user PresenceUser) *client {
 	h.mu.Lock()
 	h.nextID++
-	c := &client{id: h.nextID, projectID: projectID, send: make(chan []byte, 256), user: user}
+	c := &client{id: h.nextID, projectID: projectID, send: make(chan []byte, 256), user: user, recheck: make(chan struct{}, 1)}
 	if h.clients[projectID] == nil {
 		h.clients[projectID] = map[int64]*client{}
 	}
@@ -181,6 +192,20 @@ func (h *Hub) register(projectID string, user PresenceUser) *client {
 	h.mu.Unlock()
 	h.announce(c, false)
 	return c
+}
+
+// recheck asks a user's connections to a project to verify their access again.
+func (h *Hub) recheck(projectID, userID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, c := range h.clients[projectID] {
+		if c.user.UserID == userID {
+			select {
+			case c.recheck <- struct{}{}:
+			default:
+			}
+		}
+	}
 }
 
 func (h *Hub) unregister(c *client) {
@@ -300,9 +325,12 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request, u *User) error {
 	if err != nil {
 		return err
 	}
-	if _, _, err := s.projectAccess(r.Context(), s.db, projectID, u.ID); err != nil {
+	_, role, err := effectiveRole(r.Context(), s.db, projectID, u.ID)
+	if err != nil {
 		return err
 	}
+	var level atomic.Int32
+	level.Store(int32(role))
 	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
 
 	opts := &websocket.AcceptOptions{OriginPatterns: []string{r.Host}}
@@ -363,14 +391,42 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request, u *User) error {
 			if msg.Editing != nil && len(*msg.Editing) > 32 {
 				continue
 			}
+			// Every message is checked against the current role: revoked access stops here, and
+			// only editors can claim to be editing a field.
+			if level.Load() < int32(roleViewer) {
+				return
+			}
+			if level.Load() < int32(roleEditor) {
+				msg.Editing = nil
+			}
 			s.hub.setActivity(c, msg.Viewing, msg.Editing)
 		}
 	}()
 
+	// Access is re-verified when it changes (membership or role edits publish access.changed) and
+	// on every ping, which also catches expired or signed-out sessions.
+	stillAllowed := func() bool {
+		cu, err := s.currentUser(r)
+		if err != nil {
+			return errors.Is(err, context.Canceled) // a DB hiccup during shutdown isn't a revocation
+		}
+		_, role, err := effectiveRole(ctx, s.db, projectID, cu.ID)
+		if err != nil {
+			level.Store(0)
+			return false
+		}
+		level.Store(int32(role))
+		return true
+	}
 	ping := time.NewTicker(25 * time.Second)
 	defer ping.Stop()
 	for {
 		select {
+		case <-c.recheck:
+			if !stillAllowed() {
+				conn.Close(websocket.StatusPolicyViolation, "access revoked")
+				return nil
+			}
 		case <-ctx.Done():
 			conn.Close(websocket.StatusNormalClosure, "")
 			return nil
@@ -386,6 +442,10 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request, u *User) error {
 				return nil
 			}
 		case <-ping.C:
+			if !stillAllowed() {
+				conn.Close(websocket.StatusPolicyViolation, "access revoked")
+				return nil
+			}
 			pctx, pcancel := context.WithTimeout(ctx, 10*time.Second)
 			err := conn.Ping(pctx)
 			pcancel()

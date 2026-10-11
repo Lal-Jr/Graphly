@@ -34,7 +34,7 @@ func (s *Server) listIssues(w http.ResponseWriter, r *http.Request, u *User) err
 	if err != nil {
 		return err
 	}
-	if _, _, err := s.projectAccess(r.Context(), s.db, projectID, u.ID); err != nil {
+	if _, err := s.projectRole(r.Context(), s.db, projectID, u, roleViewer); err != nil {
 		return err
 	}
 	q := r.URL.Query()
@@ -112,7 +112,7 @@ func (s *Server) getIssue(w http.ResponseWriter, r *http.Request, u *User) error
 	if err != nil {
 		return err
 	}
-	if _, err := s.issueProject(r.Context(), s.db, id, u.ID); err != nil {
+	if _, err := s.issueRole(r.Context(), s.db, id, u, roleViewer); err != nil {
 		return err
 	}
 	is, err := loadIssue(r.Context(), s.db, id, false)
@@ -132,7 +132,7 @@ func (s *Server) getIssueByNumber(w http.ResponseWriter, r *http.Request, u *Use
 	if err != nil {
 		return errNotFound
 	}
-	if _, _, err := s.projectAccess(r.Context(), s.db, projectID, u.ID); err != nil {
+	if _, err := s.projectRole(r.Context(), s.db, projectID, u, roleViewer); err != nil {
 		return err
 	}
 	is, err := scanIssue(s.db.QueryRow(r.Context(), `SELECT `+issueCols+` FROM issues i WHERE i.project_id = $1 AND i.number = $2`, projectID, n))
@@ -147,7 +147,7 @@ func (s *Server) listLinks(w http.ResponseWriter, r *http.Request, u *User) erro
 	if err != nil {
 		return err
 	}
-	if _, _, err := s.projectAccess(r.Context(), s.db, projectID, u.ID); err != nil {
+	if _, err := s.projectRole(r.Context(), s.db, projectID, u, roleViewer); err != nil {
 		return err
 	}
 	links, err := collect(func(row pgx.Row) (Link, error) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api, errorMessage } from '../api'
 import { useSession } from '../store/session'
 import { useProject } from '../store/useProject'
@@ -15,7 +15,11 @@ export function SettingsView() {
   const { workspace, user, refresh } = useSession()
   const toast = useToast()
   const nav = useNavigate()
+  // Workspace admins manage people; project admins (workspace admins included) manage the project.
   const isAdmin = workspace?.role === 'admin'
+  const isProjectAdmin = d.role === 'admin'
+  const [overrides, setOverrides] = useState<Map<string, string | null>>(new Map())
+  const [inviteRole, setInviteRole] = useState<'member' | 'viewer' | 'admin'>('member')
   const [name, setName] = useState(d.project?.name ?? '')
   const [description, setDescription] = useState(d.project?.description ?? '')
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -29,13 +33,25 @@ export function SettingsView() {
   const wsId = d.project?.workspaceId
   const reloadMembers = async () => {
     if (wsId) d.store.refreshMembers(await api.get<Member[]>(`/workspaces/${wsId}/members`))
+    void loadOverrides()
   }
+  const projectId = d.project?.id
+  const loadOverrides = async () => {
+    if (!projectId) return
+    const rows = await api.get<{ userId: string; override: string | null }[]>(`/projects/${projectId}/members`)
+    setOverrides(new Map(rows.map((r) => [r.userId, r.override])))
+  }
+  useEffect(() => {
+    void loadOverrides()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId])
 
   return (
     <div className="view view-settings">
       <div className="settings-scroll">
         <section className="settings-card">
           <h2>Details</h2>
+          <fieldset className="plain-fieldset" disabled={!isProjectAdmin}>
           <form
             className="settings-form"
             onSubmit={(e) => {
@@ -62,6 +78,7 @@ export function SettingsView() {
               </Button>
             </div>
           </form>
+          </fieldset>
         </section>
 
         <section className="settings-card">
@@ -69,12 +86,14 @@ export function SettingsView() {
           <p className="muted">
             Columns on the board, in order. Each status belongs to a category — Graphly uses categories to decide what's blocked, in flight, or done.
           </p>
-          <WorkflowEditor />
+          {isProjectAdmin ? <WorkflowEditor /> : <p className="muted small">Only project admins can change the workflow.</p>}
         </section>
 
         <section className="settings-card">
           <h2>People</h2>
-          <p className="muted">Everyone in {workspace?.name} can see and edit this project.</p>
+          <p className="muted">
+            Workspace members can edit this project and viewers can read it. A project admin can give someone a different role here.
+          </p>
           <ul className="member-list">
             {d.members.map((m) => (
               <li key={m.id}>
@@ -86,10 +105,30 @@ export function SettingsView() {
                   </b>
                   <span className="muted small">{m.email}</span>
                 </div>
+                {isProjectAdmin && m.role !== 'admin' && (
+                  <select
+                    className="field-input sm"
+                    aria-label={`${m.name}'s role in this project`}
+                    title="Role in this project"
+                    value={overrides.get(m.id) ?? ''}
+                    onChange={(e) =>
+                      api
+                        .put(`/projects/${projectId}/members/${m.id}`, { role: e.target.value || null })
+                        .then(loadOverrides, (err) => toast(errorMessage(err), 'error'))
+                    }
+                  >
+                    <option value="">{m.role === 'viewer' ? 'Viewer here' : 'Editor here'} (default)</option>
+                    <option value="admin">Project admin</option>
+                    <option value="editor">Editor</option>
+                    <option value="viewer">Viewer</option>
+                  </select>
+                )}
                 {isAdmin && m.id !== user?.id ? (
                   <>
                     <select
                       className="field-input sm"
+                      aria-label={`${m.name}'s workspace role`}
+                      title="Workspace role"
                       value={m.role}
                       onChange={(e) =>
                         api
@@ -97,8 +136,9 @@ export function SettingsView() {
                           .then(reloadMembers, (err) => toast(errorMessage(err), 'error'))
                       }
                     >
-                      <option value="admin">Admin</option>
+                      <option value="admin">Workspace admin</option>
                       <option value="member">Member</option>
+                      <option value="viewer">Viewer</option>
                     </select>
                     <Button
                       size="sm"
@@ -127,13 +167,19 @@ export function SettingsView() {
                   <Button icon={<Icon name="copy" size={14} />} onClick={() => navigator.clipboard.writeText(invite).then(() => toast('Invite link copied', 'success'))}>
                     Copy
                   </Button>
-                  <span className="muted small">Anyone with this link can join for 7 days.</span>
+                  <span className="muted small">Anyone with this link can join as {inviteRole === 'admin' ? 'an admin' : `a ${inviteRole}`} for 7 days.</span>
                 </>
               ) : (
+                <>
+                <select className="field-input sm" aria-label="Invite as" value={inviteRole} onChange={(e) => setInviteRole(e.target.value as typeof inviteRole)}>
+                  <option value="member">Invite as member</option>
+                  <option value="viewer">Invite as viewer</option>
+                  <option value="admin">Invite as admin</option>
+                </select>
                 <Button
                   icon={<Icon name="user-plus" size={16} />}
                   onClick={() =>
-                    api.post<{ token: string }>(`/workspaces/${wsId}/invites`).then(
+                    api.post<{ token: string }>(`/workspaces/${wsId}/invites`, { role: inviteRole }).then(
                       (r) => setInvite(`${location.origin}/invite/${r.token}`),
                       (err) => toast(errorMessage(err), 'error'),
                     )
@@ -141,6 +187,7 @@ export function SettingsView() {
                 >
                   Create invite link
                 </Button>
+                </>
               )}
             </div>
           ) : (
@@ -148,9 +195,23 @@ export function SettingsView() {
           )}
         </section>
 
-        <GitHubCard isAdmin={isAdmin} />
+        <GitHubCard isAdmin={isProjectAdmin} />
 
         {isAdmin && (
+          <section className="settings-card">
+            <h2>
+              <Icon name="scroll" size={18} /> Audit log
+            </h2>
+            <p className="muted">Membership and role changes, invites, API tokens, webhooks, imports and deletions across {workspace?.name}.</p>
+            <div>
+              <Link to="/audit" className="btn btn-default btn-md">
+                Open audit log
+              </Link>
+            </div>
+          </section>
+        )}
+
+        {isProjectAdmin && (
           <section className="settings-card danger-zone">
             <h2>Danger zone</h2>
             <p className="muted">Deleting a project removes all of its issues, comments and history for everyone.</p>

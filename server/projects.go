@@ -95,7 +95,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, u *User) 
 	if err != nil {
 		return err
 	}
-	if _, err := s.role(r.Context(), s.db, wsID, u.ID); err != nil {
+	if _, err := s.workspaceRole(r.Context(), s.db, wsID, u, true); err != nil {
 		return err
 	}
 	var body struct {
@@ -136,6 +136,8 @@ type projectSnapshot struct {
 	Members  []Member `json:"members"`
 	// Realtime cursor: subscribe to /live?since=<this> to receive everything after the snapshot.
 	Seq int64 `json:"seq"`
+	// The caller's role in this project: viewer, editor or admin.
+	Role string `json:"role"`
 }
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request, u *User) error {
@@ -150,11 +152,11 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request, u *User) err
 		return err
 	}
 	defer tx.Rollback(ctx)
-	wsID, _, err := s.projectAccess(ctx, tx, id, u.ID)
+	wsID, role, err := effectiveRole(ctx, tx, id, u.ID)
 	if err != nil {
 		return err
 	}
-	var snap projectSnapshot
+	snap := projectSnapshot{Role: role.String()}
 	if err := tx.QueryRow(ctx, `SELECT coalesce(max(id), 0) FROM events`).Scan(&snap.Seq); err != nil {
 		return err
 	}
@@ -200,7 +202,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request, u *User) 
 		return err
 	}
 	return s.inTx(r.Context(), func(tx pgx.Tx) error {
-		if _, _, err := s.projectAccess(r.Context(), tx, id, u.ID); err != nil {
+		if _, err := s.projectRole(r.Context(), tx, id, u, roleAdmin); err != nil {
 			return err
 		}
 		var p Project
@@ -234,14 +236,18 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request, u *User) 
 	if err != nil {
 		return err
 	}
-	wsID, role, err := s.projectAccess(r.Context(), s.db, id, u.ID)
+	wsID, err := s.projectRole(r.Context(), s.db, id, u, roleAdmin)
 	if err != nil {
 		return err
 	}
-	if role != "admin" {
-		return errStatus(http.StatusForbidden, "only workspace admins can delete projects")
-	}
 	return s.inTx(r.Context(), func(tx pgx.Tx) error {
+		var key, name string
+		if err := tx.QueryRow(r.Context(), `SELECT key, name FROM projects WHERE id = $1`, id).Scan(&key, &name); err != nil {
+			return err
+		}
+		if err := s.audit(r.Context(), tx, wsID, u.ID, "project.delete", "project", id, map[string]any{"key": key, "name": name}); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(r.Context(), `DELETE FROM projects WHERE id = $1 AND workspace_id = $2`, id, wsID); err != nil {
 			return err
 		}
@@ -271,7 +277,7 @@ func (s *Server) createStatus(w http.ResponseWriter, r *http.Request, u *User) e
 		return badRequest("category must be todo, in_progress or done")
 	}
 	return s.inTx(r.Context(), func(tx pgx.Tx) error {
-		if _, _, err := s.projectAccess(r.Context(), tx, projectID, u.ID); err != nil {
+		if _, err := s.projectRole(r.Context(), tx, projectID, u, roleAdmin); err != nil {
 			return err
 		}
 		st := Status{ProjectID: projectID, Name: name, Category: body.Category}
@@ -303,12 +309,13 @@ func (s *Server) publishStatuses(ctx context.Context, tx pgx.Tx, projectID strin
 	return publish(ctx, tx, projectID, "statuses.update", map[string]any{"statuses": sts})
 }
 
-func (s *Server) statusProject(ctx context.Context, q querier, statusID, userID string) (string, error) {
+// statusProject returns a status's project after checking the user may change its workflow.
+func (s *Server) statusProject(ctx context.Context, q querier, statusID string, u *User) (string, error) {
 	var projectID string
 	if err := q.QueryRow(ctx, `SELECT project_id FROM statuses WHERE id = $1`, statusID).Scan(&projectID); err != nil {
 		return "", err
 	}
-	_, _, err := s.projectAccess(ctx, q, projectID, userID)
+	_, err := s.projectRole(ctx, q, projectID, u, roleAdmin)
 	return projectID, err
 }
 
@@ -326,7 +333,7 @@ func (s *Server) updateStatus(w http.ResponseWriter, r *http.Request, u *User) e
 		return err
 	}
 	return s.inTx(r.Context(), func(tx pgx.Tx) error {
-		projectID, err := s.statusProject(r.Context(), tx, id, u.ID)
+		projectID, err := s.statusProject(r.Context(), tx, id, u)
 		if err != nil {
 			return err
 		}
@@ -393,7 +400,7 @@ func (s *Server) deleteStatus(w http.ResponseWriter, r *http.Request, u *User) e
 		}
 	}
 	return s.inTx(r.Context(), func(tx pgx.Tx) error {
-		projectID, err := s.statusProject(r.Context(), tx, id, u.ID)
+		projectID, err := s.statusProject(r.Context(), tx, id, u)
 		if err != nil {
 			return err
 		}
@@ -431,7 +438,13 @@ func (s *Server) deleteStatus(w http.ResponseWriter, r *http.Request, u *User) e
 				return err
 			}
 		}
-		if _, err := tx.Exec(r.Context(), `DELETE FROM statuses WHERE id = $1`, id); err != nil {
+		var stName string
+		if err := tx.QueryRow(r.Context(), `DELETE FROM statuses WHERE id = $1 RETURNING name`, id).Scan(&stName); err != nil {
+			return err
+		}
+		if wsID, _, err := effectiveRole(r.Context(), tx, projectID, u.ID); err != nil {
+			return err
+		} else if err := s.audit(r.Context(), tx, wsID, u.ID, "status.delete", "status", id, map[string]any{"project": projectID, "name": stName}); err != nil {
 			return err
 		}
 		if err := s.publishStatuses(r.Context(), tx, projectID); err != nil {
@@ -446,7 +459,7 @@ func (s *Server) projectActivity(w http.ResponseWriter, r *http.Request, u *User
 	if err != nil {
 		return err
 	}
-	if _, _, err := s.projectAccess(r.Context(), s.db, id, u.ID); err != nil {
+	if _, err := s.projectRole(r.Context(), s.db, id, u, roleViewer); err != nil {
 		return err
 	}
 	// ?since=<RFC3339> returns everything after that moment (capped), for the standup digest.

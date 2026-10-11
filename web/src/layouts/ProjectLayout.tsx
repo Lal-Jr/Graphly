@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation, useParams } from 'react-router-dom'
 import { CommandPalette } from '../components/CommandPalette'
 import { CreateIssueDialog } from '../components/CreateIssueDialog'
@@ -47,13 +47,16 @@ function ProjectShell() {
   const { user } = useSession()
   const loc = useLocation()
   const [creating, setCreating] = useState(false)
+  const canEdit = d.role !== 'viewer'
+  const canEditRef = useRef(canEdit)
+  canEditRef.current = canEdit
   const openCreate = useCallback(() => setCreating(true), [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement
       if (e.metaKey || e.ctrlKey || e.altKey || el.closest('input, textarea, select, [contenteditable]') || document.querySelector('.modal-backdrop')) return
-      if (e.key === 'c') {
+      if (e.key === 'c' && canEditRef.current) {
         e.preventDefault()
         setCreating(true)
       }
@@ -85,7 +88,7 @@ function ProjectShell() {
 
   return (
     <div className="app">
-      <Sidebar onCreate={openCreate} footer={d.phase === 'ready' ? <ForecastPulse /> : null}>
+      <Sidebar onCreate={canEdit ? openCreate : undefined} footer={d.phase === 'ready' ? <ForecastPulse /> : null}>
         <div className="sb-project">
           <span className="project-avatar">{d.project?.key.slice(0, 2) ?? '··'}</span>
           <span className="ws-name">
@@ -119,6 +122,11 @@ function ProjectShell() {
             {view?.blurb && <p className="page-blurb">{view.blurb}</p>}
           </div>
           <span className="spacer" />
+          {d.phase === 'ready' && !canEdit && (
+            <span className="view-only" title="You can read this project but not change it. Ask a project admin for edit access.">
+              <Icon name="eye" size={14} /> View only
+            </span>
+          )}
           {others.length > 0 && (
             <span className="presence" title={`${others.map((o) => o.name).join(', ')} online`}>
               <span className="live-dot" />
@@ -142,7 +150,7 @@ function ProjectShell() {
       </main>
       <IssueModal />
       {creating && <CreateIssueDialog onClose={() => setCreating(false)} />}
-      <CommandPalette onCreate={openCreate} />
+      <CommandPalette onCreate={canEdit ? openCreate : undefined} />
     </div>
   )
 }

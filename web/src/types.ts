@@ -12,11 +12,11 @@ export interface User {
 export interface Workspace {
   id: string
   name: string
-  role: 'admin' | 'member'
+  role: 'admin' | 'member' | 'viewer'
 }
 
 export interface Member extends User {
-  role: 'admin' | 'member'
+  role: 'admin' | 'member' | 'viewer'
   joinedAt: string
 }
 
@@ -214,4 +214,16 @@ export interface ApiToken {
   createdAt: string
   expiresAt: string | null
   lastUsedAt: string | null
+}
+
+export interface AuditEntry {
+  id: number
+  actorId: string | null
+  actorName: string | null
+  action: string
+  targetType: string
+  targetId: string | null
+  data: unknown
+  ip: string | null
+  createdAt: string
 }

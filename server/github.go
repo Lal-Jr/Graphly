@@ -39,7 +39,7 @@ func (s *Server) githubStatus(w http.ResponseWriter, r *http.Request, u *User) e
 	if err != nil {
 		return err
 	}
-	if _, _, err := s.projectAccess(r.Context(), s.db, id, u.ID); err != nil {
+	if _, err := s.projectRole(r.Context(), s.db, id, u, roleViewer); err != nil {
 		return err
 	}
 	var enabled bool
@@ -55,15 +55,17 @@ func (s *Server) enableGitHub(w http.ResponseWriter, r *http.Request, u *User) e
 	if err != nil {
 		return err
 	}
-	_, role, err := s.projectAccess(r.Context(), s.db, id, u.ID)
+	wsID, err := s.projectRole(r.Context(), s.db, id, u, roleAdmin)
 	if err != nil {
 		return err
 	}
-	if role != "admin" {
-		return errStatus(http.StatusForbidden, "only workspace admins can manage integrations")
-	}
 	secret := randomToken(24)
-	if _, err := s.db.Exec(r.Context(), `UPDATE projects SET github_secret = $2 WHERE id = $1`, id, secret); err != nil {
+	if err := s.inTx(r.Context(), func(tx pgx.Tx) error {
+		if _, err := tx.Exec(r.Context(), `UPDATE projects SET github_secret = $2 WHERE id = $1`, id, secret); err != nil {
+			return err
+		}
+		return s.audit(r.Context(), tx, wsID, u.ID, "webhook.github.rotate", "project", id, nil)
+	}); err != nil {
 		return err
 	}
 	return ok(w, map[string]any{"enabled": true, "secret": secret, "path": "/api/hooks/github/" + id})
@@ -74,14 +76,16 @@ func (s *Server) disableGitHub(w http.ResponseWriter, r *http.Request, u *User) 
 	if err != nil {
 		return err
 	}
-	_, role, err := s.projectAccess(r.Context(), s.db, id, u.ID)
+	wsID, err := s.projectRole(r.Context(), s.db, id, u, roleAdmin)
 	if err != nil {
 		return err
 	}
-	if role != "admin" {
-		return errStatus(http.StatusForbidden, "only workspace admins can manage integrations")
-	}
-	if _, err := s.db.Exec(r.Context(), `UPDATE projects SET github_secret = NULL WHERE id = $1`, id); err != nil {
+	if err := s.inTx(r.Context(), func(tx pgx.Tx) error {
+		if _, err := tx.Exec(r.Context(), `UPDATE projects SET github_secret = NULL WHERE id = $1`, id); err != nil {
+			return err
+		}
+		return s.audit(r.Context(), tx, wsID, u.ID, "webhook.github.disable", "project", id, nil)
+	}); err != nil {
 		return err
 	}
 	return ok(w, map[string]bool{"enabled": false})
@@ -92,7 +96,7 @@ func (s *Server) listPRs(w http.ResponseWriter, r *http.Request, u *User) error 
 	if err != nil {
 		return err
 	}
-	if _, err := s.issueProject(r.Context(), s.db, id, u.ID); err != nil {
+	if _, err := s.issueRole(r.Context(), s.db, id, u, roleViewer); err != nil {
 		return err
 	}
 	prs, err := collect(scanPR)(s.db.Query(r.Context(), `SELECT repo, number, title, url, state, author, updated_at FROM issue_prs WHERE issue_id = $1 ORDER BY updated_at DESC`, id))

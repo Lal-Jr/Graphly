@@ -206,7 +206,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(withAuditIP(r.Context(), clientIP(r, s.cfg.ClientIPHeader))))
 	})
 }
 
@@ -285,6 +285,9 @@ func (s *Server) Routes() http.Handler {
 	authed("GET /api/projects/{id}/live", s.live)
 	api("GET /api/projects/{id}/activity", s.projectActivity)
 
+	api("GET /api/projects/{id}/members", s.listProjectMembers)
+	authed("PUT /api/projects/{id}/members/{user}", s.setProjectMember)
+	authed("GET /api/workspaces/{ws}/audit", s.listAudit)
 	authed("POST /api/projects/{id}/statuses", s.createStatus)
 	authed("PATCH /api/statuses/{id}", s.updateStatus)
 	authed("DELETE /api/statuses/{id}", s.deleteStatus)

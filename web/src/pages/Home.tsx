@@ -42,7 +42,7 @@ export function Home() {
 
   return (
     <div className="app">
-      <Sidebar onCreate={() => setCreating(true)} createLabel="New project">
+      <Sidebar onCreate={workspace?.role !== 'viewer' ? () => setCreating(true) : undefined} createLabel="New project">
         {projects && projects.length > 0 && <span className="sidebar-heading">Projects</span>}
         {projects?.map((p) => (
           <NavLink key={p.id} to={`/p/${p.id}/board`} className="sidebar-link">
@@ -119,13 +119,13 @@ export function Home() {
                     </Link>
                   )
                 })}
-                <button className="project-card project-card-new" onClick={() => setCreating(true)}>
+                {workspace?.role !== 'viewer' && <button className="project-card project-card-new" onClick={() => setCreating(true)}>
                   <span className="new-mark">
                     <Icon name="plus" size={20} />
                   </span>
                   <b>New project</b>
                   <span className="muted small">Start empty or with a sample plan</span>
-                </button>
+                </button>}
               </div>
             )}
           </section>

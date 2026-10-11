@@ -79,6 +79,7 @@ function IssueDetail({ issue, onClose }: { issue: Issue; onClose: () => void }) 
   const epic = issue.epicId ? d.issueMap.get(issue.epicId) : null
   const update = (fields: Partial<Issue>) => d.store.updateIssue(issue.id, fields)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const readOnly = d.role === 'viewer'
 
   const copyLink = () => {
     const url = `${location.origin}${location.pathname}?issue=${key}`
@@ -86,7 +87,7 @@ function IssueDetail({ issue, onClose }: { issue: Issue; onClose: () => void }) 
   }
 
   return (
-    <div className="issue-detail">
+    <div className={`issue-detail${readOnly ? ' read-only' : ''}`}>
       <header className="issue-head">
         <nav className="crumbs">
           {epic && (
@@ -112,7 +113,7 @@ function IssueDetail({ issue, onClose }: { issue: Issue; onClose: () => void }) 
         <button className="icon-btn" onClick={copyLink} title="Copy link">
           <Icon name="link" size={18} />
         </button>
-        <Popover
+        {!readOnly && <Popover
           align="end"
           width={200}
           trigger={({ toggle, ref }) => (
@@ -130,7 +131,7 @@ function IssueDetail({ issue, onClose }: { issue: Issue; onClose: () => void }) 
               }}
             />
           )}
-        </Popover>
+        </Popover>}
         <button className="icon-btn" onClick={onClose} title="Close (Esc)">
           <Icon name="x" size={18} />
         </button>
@@ -156,14 +157,17 @@ function IssueDetail({ issue, onClose }: { issue: Issue; onClose: () => void }) 
 
       <div className="issue-cols">
         <main className="issue-main">
-          <TitleEditor issue={issue} />
-          <DescriptionEditor issue={issue} />
+          <fieldset className="plain-fieldset" disabled={readOnly}>
+            <TitleEditor issue={issue} />
+            <DescriptionEditor issue={issue} />
+          </fieldset>
+          {/* Links stay clickable for viewers; .read-only hides the edit controls. */}
           {issue.type === 'epic' ? <ChildIssues epic={issue} /> : <Dependencies issue={issue} />}
           <Development issue={issue} />
           <ActivityPanel issue={issue} />
         </main>
 
-        <aside className="issue-side">
+        <fieldset className="plain-fieldset issue-side" disabled={readOnly}>
           <div className="side-status">
             <StatusButton issue={issue} onChange={(statusId) => update({ statusId })} />
             {d.analysis.blockedBy.has(issue.id) && (
@@ -235,7 +239,7 @@ function IssueDetail({ issue, onClose }: { issue: Issue; onClose: () => void }) 
             <br />
             Updated {timeAgo(issue.updatedAt)}
           </p>
-        </aside>
+        </fieldset>
       </div>
     </div>
   )
@@ -659,7 +663,7 @@ function ActivityPanel({ issue }: { issue: Issue }) {
 
       {tab === 'comments' ? (
         <>
-          <div className="composer">
+          {d.role !== 'viewer' && <div className="composer">
             <Avatar user={user} size={32} />
             <div className="composer-body">
               <textarea
@@ -680,7 +684,7 @@ function ActivityPanel({ issue }: { issue: Issue }) {
                 </div>
               )}
             </div>
-          </div>
+          </div>}
           {comments === null && <p className="muted small">Loading…</p>}
           {[...(comments ?? [])].reverse().map((c) => {
             const author = c.authorId ? d.memberMap.get(c.authorId) : null

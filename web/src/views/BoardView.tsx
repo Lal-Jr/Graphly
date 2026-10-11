@@ -18,6 +18,7 @@ interface Lane {
 
 export function BoardView() {
   const d = useProject()
+  const canEdit = d.role !== 'viewer'
   const { match } = useFilters()
   const toast = useToast()
   const [, openIssue] = useIssueParam()
@@ -203,11 +204,11 @@ export function BoardView() {
                             relation={related.get(i.id)}
                             onOpen={openIssue}
                             onHover={setHover}
-                            onDragStart={(id) => (dragging.current = id)}
+                            onDragStart={canEdit ? (id) => (dragging.current = id) : undefined}
                             onDropBefore={(beforeId) => drop(st, lane.id, beforeId)}
                           />
                         ))}
-                        {colIdx === 0 && <QuickCreate status={st} lane={lane.id} groupBy={groupBy} />}
+                        {colIdx === 0 && canEdit && <QuickCreate status={st} lane={lane.id} groupBy={groupBy} />}
                       </div>
                     )
                   })}

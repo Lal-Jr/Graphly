@@ -134,8 +134,8 @@ func (s *Server) applyFields(ctx context.Context, tx pgx.Tx, f issueFields, is *
 			if !validID(*v) {
 				return nil, badRequest("invalid assignee")
 			}
-			if _, err := s.role(ctx, tx, workspaceID, *v); err != nil {
-				return nil, badRequest("assignee must be a member of this workspace")
+			if _, level, err := effectiveRole(ctx, tx, is.ProjectID, *v); err != nil || level < roleEditor {
+				return nil, badRequest("assignee must be someone who can edit this project")
 			}
 		}
 		mark("assignee", !eqPtr(v, is.AssigneeID))
@@ -231,7 +231,7 @@ func (s *Server) createIssue(w http.ResponseWriter, r *http.Request, u *User) er
 	f := issueFields{raw}
 	ctx := r.Context()
 	return s.inTx(ctx, func(tx pgx.Tx) error {
-		wsID, _, err := s.projectAccess(ctx, tx, projectID, u.ID)
+		wsID, err := s.projectRole(ctx, tx, projectID, u, roleEditor)
 		if err != nil {
 			return err
 		}
@@ -302,11 +302,11 @@ func (s *Server) updateIssue(w http.ResponseWriter, r *http.Request, u *User) er
 	f := issueFields{raw}
 	ctx := r.Context()
 	return s.inTx(ctx, func(tx pgx.Tx) error {
-		projectID, err := s.issueProject(ctx, tx, id, u.ID)
+		projectID, err := s.issueRole(ctx, tx, id, u, roleEditor)
 		if err != nil {
 			return err
 		}
-		wsID, _, err := s.projectAccess(ctx, tx, projectID, u.ID)
+		wsID, _, err := effectiveRole(ctx, tx, projectID, u.ID)
 		if err != nil {
 			return err
 		}
@@ -457,7 +457,7 @@ func (s *Server) deleteIssue(w http.ResponseWriter, r *http.Request, u *User) er
 	}
 	ctx := r.Context()
 	return s.inTx(ctx, func(tx pgx.Tx) error {
-		projectID, err := s.issueProject(ctx, tx, id, u.ID)
+		projectID, err := s.issueRole(ctx, tx, id, u, roleEditor)
 		if err != nil {
 			return err
 		}
@@ -475,6 +475,13 @@ func (s *Server) deleteIssue(w http.ResponseWriter, r *http.Request, u *User) er
 			return err
 		}
 		if err := logActivity(ctx, tx, projectID, nil, u.ID, "deleted", map[string]any{"number": is.Number, "title": is.Title}); err != nil {
+			return err
+		}
+		wsID, _, err := effectiveRole(ctx, tx, projectID, u.ID)
+		if err != nil {
+			return err
+		}
+		if err := s.audit(ctx, tx, wsID, u.ID, "issue.delete", "issue", id, map[string]any{"project": projectID, "number": is.Number, "title": is.Title}); err != nil {
 			return err
 		}
 		return ok(w, map[string]bool{"ok": true})
@@ -500,7 +507,7 @@ func (s *Server) addBlocker(w http.ResponseWriter, r *http.Request, u *User) err
 	}
 	ctx := r.Context()
 	return s.inTx(ctx, func(tx pgx.Tx) error {
-		projectID, err := s.issueProject(ctx, tx, id, u.ID)
+		projectID, err := s.issueRole(ctx, tx, id, u, roleEditor)
 		if err != nil {
 			return err
 		}
@@ -556,7 +563,7 @@ func (s *Server) removeBlocker(w http.ResponseWriter, r *http.Request, u *User) 
 	}
 	ctx := r.Context()
 	return s.inTx(ctx, func(tx pgx.Tx) error {
-		projectID, err := s.issueProject(ctx, tx, id, u.ID)
+		projectID, err := s.issueRole(ctx, tx, id, u, roleEditor)
 		if err != nil {
 			return err
 		}
@@ -586,7 +593,7 @@ func (s *Server) listComments(w http.ResponseWriter, r *http.Request, u *User) e
 	if err != nil {
 		return err
 	}
-	if _, err := s.issueProject(r.Context(), s.db, id, u.ID); err != nil {
+	if _, err := s.issueRole(r.Context(), s.db, id, u, roleViewer); err != nil {
 		return err
 	}
 	cs, err := collect(scanComment)(s.db.Query(r.Context(), `SELECT id, issue_id, author_id, body, created_at FROM comments WHERE issue_id = $1 ORDER BY created_at`, id))
@@ -611,7 +618,7 @@ func (s *Server) addComment(w http.ResponseWriter, r *http.Request, u *User) err
 	}
 	ctx := r.Context()
 	return s.inTx(ctx, func(tx pgx.Tx) error {
-		projectID, err := s.issueProject(ctx, tx, id, u.ID)
+		projectID, err := s.issueRole(ctx, tx, id, u, roleEditor)
 		if err != nil {
 			return err
 		}
@@ -645,12 +652,20 @@ func (s *Server) deleteComment(w http.ResponseWriter, r *http.Request, u *User) 
 		if err := tx.QueryRow(ctx, `SELECT issue_id, author_id FROM comments WHERE id = $1`, id).Scan(&issueID, &author); err != nil {
 			return err
 		}
-		projectID, err := s.issueProject(ctx, tx, issueID, u.ID)
+		projectID, err := s.issueRole(ctx, tx, issueID, u, roleEditor)
 		if err != nil {
 			return err
 		}
-		if author == nil || *author != u.ID {
-			return errStatus(http.StatusForbidden, "you can only delete your own comments")
+		own := author != nil && *author == u.ID
+		if !own {
+			// Project admins can remove anyone's comment; that's logged.
+			wsID, err := s.projectRole(ctx, tx, projectID, u, roleAdmin)
+			if err != nil {
+				return errStatus(http.StatusForbidden, "you can only delete your own comments")
+			}
+			if err := s.audit(ctx, tx, wsID, u.ID, "comment.delete", "comment", id, map[string]any{"issue": issueID, "author": author}); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM comments WHERE id = $1`, id); err != nil {
 			return err
@@ -667,7 +682,7 @@ func (s *Server) issueActivity(w http.ResponseWriter, r *http.Request, u *User) 
 	if err != nil {
 		return err
 	}
-	if _, err := s.issueProject(r.Context(), s.db, id, u.ID); err != nil {
+	if _, err := s.issueRole(r.Context(), s.db, id, u, roleViewer); err != nil {
 		return err
 	}
 	acts, err := collect(scanActivity)(s.db.Query(r.Context(), `SELECT `+activityCols+` FROM activity WHERE issue_id = $1 ORDER BY id DESC LIMIT 200`, id))

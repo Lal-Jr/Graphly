@@ -1,6 +1,7 @@
 import { Suspense, lazy, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { ProjectLayout } from './layouts/ProjectLayout'
+import { AuditPage } from './pages/Audit'
 import { AuthPage } from './pages/Auth'
 import { Home } from './pages/Home'
 import { InvitePage } from './pages/Invite'
@@ -45,6 +46,7 @@ export default function App() {
               <Route path="/invite/:token" element={<InvitePage />} />
               <Route path="/" element={<RequireAuth><Home /></RequireAuth>} />
               <Route path="/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
+              <Route path="/audit" element={<RequireAuth><AuditPage /></RequireAuth>} />
               <Route path="/p/:projectId" element={<RequireAuth><ProjectLayout /></RequireAuth>}>
                 <Route index element={<Navigate to="board" replace />} />
                 <Route path="board" element={<BoardView />} />

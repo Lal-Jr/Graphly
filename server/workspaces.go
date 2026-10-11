@@ -31,6 +31,8 @@ func (s *Server) role(ctx context.Context, q querier, workspaceID, userID string
 	return role, err
 }
 
+var workspaceRoles = map[string]bool{"admin": true, "member": true, "viewer": true}
+
 func (s *Server) requireAdmin(ctx context.Context, workspaceID, userID string) error {
 	role, err := s.role(ctx, s.db, workspaceID, userID)
 	if err != nil {
@@ -42,30 +44,22 @@ func (s *Server) requireAdmin(ctx context.Context, workspaceID, userID string) e
 	return nil
 }
 
-// projectAccess checks the user can see a project and returns its workspace and the user's role.
-func (s *Server) projectAccess(ctx context.Context, q querier, projectID, userID string) (workspaceID, role string, err error) {
-	err = q.QueryRow(ctx, `
-		SELECT p.workspace_id, m.role FROM projects p
-		JOIN workspace_members m ON m.workspace_id = p.workspace_id AND m.user_id = $2
-		WHERE p.id = $1`, projectID, userID).Scan(&workspaceID, &role)
-	if err == pgx.ErrNoRows {
-		err = errNotFound
+// accessChanged tells every open connection of a user in the workspace (or one project) to
+// re-check their access, so removals and demotions take effect on live sockets at once.
+func accessChanged(ctx context.Context, tx pgx.Tx, wsID, projectID, userID string) error {
+	projects := []string{projectID}
+	if projectID == "" {
+		var err error
+		if projects, err = collect(scanString)(tx.Query(ctx, `SELECT id FROM projects WHERE workspace_id = $1`, wsID)); err != nil {
+			return err
+		}
 	}
-	return
-}
-
-// issueProject returns an accessible issue's project id.
-func (s *Server) issueProject(ctx context.Context, q querier, issueID, userID string) (string, error) {
-	var projectID string
-	err := q.QueryRow(ctx, `
-		SELECT i.project_id FROM issues i
-		JOIN projects p ON p.id = i.project_id
-		JOIN workspace_members m ON m.workspace_id = p.workspace_id AND m.user_id = $2
-		WHERE i.id = $1`, issueID, userID).Scan(&projectID)
-	if err == pgx.ErrNoRows {
-		err = errNotFound
+	for _, p := range projects {
+		if err := publish(ctx, tx, p, "access.changed", map[string]any{"userId": userID}); err != nil {
+			return err
+		}
 	}
-	return projectID, err
+	return nil
 }
 
 func createWorkspaceTx(ctx context.Context, tx pgx.Tx, name, ownerID string) (Workspace, error) {
@@ -181,21 +175,30 @@ func (s *Server) updateMember(w http.ResponseWriter, r *http.Request, u *User) e
 	if err := readJSON(r, &body); err != nil {
 		return err
 	}
-	if body.Role != "admin" && body.Role != "member" {
-		return badRequest("role must be admin or member")
+	if !workspaceRoles[body.Role] {
+		return badRequest("role must be admin, member or viewer")
 	}
 	return s.inTx(r.Context(), func(tx pgx.Tx) error {
-		if body.Role == "member" {
+		if body.Role != "admin" {
 			if err := lastAdminGuard(r.Context(), tx, wsID, target); err != nil {
 				return err
 			}
 		}
-		tag, err := tx.Exec(r.Context(), `UPDATE workspace_members SET role = $3 WHERE workspace_id = $1 AND user_id = $2`, wsID, target, body.Role)
-		if err != nil {
+		var from string
+		if err := tx.QueryRow(r.Context(), `SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE`, wsID, target).Scan(&from); err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return errNotFound
+		if from == body.Role {
+			return ok(w, map[string]bool{"ok": true})
+		}
+		if _, err := tx.Exec(r.Context(), `UPDATE workspace_members SET role = $3 WHERE workspace_id = $1 AND user_id = $2`, wsID, target, body.Role); err != nil {
+			return err
+		}
+		if err := s.audit(r.Context(), tx, wsID, u.ID, "member.role", "user", target, map[string]any{"from": from, "to": body.Role}); err != nil {
+			return err
+		}
+		if err := accessChanged(r.Context(), tx, wsID, "", target); err != nil {
+			return err
 		}
 		return ok(w, map[string]bool{"ok": true})
 	})
@@ -222,7 +225,24 @@ func (s *Server) removeMember(w http.ResponseWriter, r *http.Request, u *User) e
 		if err := lastAdminGuard(r.Context(), tx, wsID, target); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(r.Context(), `DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, wsID, target); err != nil {
+		tag, err := tx.Exec(r.Context(), `DELETE FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, wsID, target)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return errNotFound
+		}
+		if _, err := tx.Exec(r.Context(), `DELETE FROM project_members WHERE user_id = $2 AND project_id IN (SELECT id FROM projects WHERE workspace_id = $1)`, wsID, target); err != nil {
+			return err
+		}
+		action := "member.remove"
+		if target == u.ID {
+			action = "member.leave"
+		}
+		if err := s.audit(r.Context(), tx, wsID, u.ID, action, "user", target, nil); err != nil {
+			return err
+		}
+		if err := accessChanged(r.Context(), tx, wsID, "", target); err != nil {
 			return err
 		}
 		// Unassign their open work in this workspace so it doesn't silently stall.
@@ -248,13 +268,32 @@ func (s *Server) createInvite(w http.ResponseWriter, r *http.Request, u *User) e
 	if err := s.requireAdmin(r.Context(), wsID, u.ID); err != nil {
 		return err
 	}
+	var body struct{ Role string }
+	if r.ContentLength != 0 {
+		if err := readJSON(r, &body); err != nil {
+			return err
+		}
+	}
+	if body.Role == "" {
+		body.Role = "member"
+	}
+	if !workspaceRoles[body.Role] {
+		return badRequest("role must be admin, member or viewer")
+	}
 	token := randomToken(18)
 	expires := time.Now().Add(inviteTTL)
-	if _, err := s.db.Exec(r.Context(), `INSERT INTO invites (token, workspace_id, created_by, expires_at) VALUES ($1, $2, $3, $4)`,
-		token, wsID, u.ID, expires); err != nil {
+	err = s.inTx(r.Context(), func(tx pgx.Tx) error {
+		if _, err := tx.Exec(r.Context(), `INSERT INTO invites (token, workspace_id, created_by, expires_at, role) VALUES ($1, $2, $3, $4, $5)`,
+			token, wsID, u.ID, expires, body.Role); err != nil {
+			return err
+		}
+		// The token is a credential: log only a fingerprint.
+		return s.audit(r.Context(), tx, wsID, u.ID, "invite.create", "invite", token[:6], map[string]any{"role": body.Role, "expiresAt": expires})
+	})
+	if err != nil {
 		return err
 	}
-	return ok(w, map[string]any{"token": token, "expiresAt": expires})
+	return ok(w, map[string]any{"token": token, "expiresAt": expires, "role": body.Role})
 }
 
 func (s *Server) previewInvite(w http.ResponseWriter, r *http.Request) error {
@@ -269,14 +308,25 @@ func (s *Server) previewInvite(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request, u *User) error {
-	var wsID string
-	err := s.db.QueryRow(r.Context(), `SELECT workspace_id FROM invites WHERE token = $1 AND expires_at > now()`, r.PathValue("token")).Scan(&wsID)
+	var wsID, role string
+	err := s.db.QueryRow(r.Context(), `SELECT workspace_id, role FROM invites WHERE token = $1 AND expires_at > now()`, r.PathValue("token")).Scan(&wsID, &role)
 	if err != nil {
 		return err
 	}
-	if _, err := s.db.Exec(r.Context(), `INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, 'member')
-		ON CONFLICT DO NOTHING`, wsID, u.ID); err != nil {
+	joined := false
+	if err := s.inTx(r.Context(), func(tx pgx.Tx) error {
+		tag, err := tx.Exec(r.Context(), `INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3)
+			ON CONFLICT DO NOTHING`, wsID, u.ID, role)
+		if err != nil || tag.RowsAffected() == 0 {
+			return err
+		}
+		joined = true
+		return s.audit(r.Context(), tx, wsID, u.ID, "member.join", "user", u.ID, map[string]any{"role": role, "invite": r.PathValue("token")[:6]})
+	}); err != nil {
 		return err
+	}
+	if !joined {
+		return ok(w, map[string]string{"workspaceId": wsID})
 	}
 	// Let open boards in the workspace learn about the new assignable person.
 	projects, err := collect(scanString)(s.db.Query(r.Context(), `SELECT id FROM projects WHERE workspace_id = $1`, wsID))
@@ -285,7 +335,7 @@ func (s *Server) acceptInvite(w http.ResponseWriter, r *http.Request, u *User) e
 	}
 	for _, p := range projects {
 		if err := s.inTx(r.Context(), func(tx pgx.Tx) error {
-			return publish(r.Context(), tx, p, "member.join", map[string]any{"member": Member{User: *u, Role: "member", JoinedAt: time.Now()}})
+			return publish(r.Context(), tx, p, "member.join", map[string]any{"member": Member{User: *u, Role: role, JoinedAt: time.Now()}})
 		}); err != nil {
 			return err
 		}

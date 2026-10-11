@@ -202,6 +202,9 @@ func (s *Server) setPassword(w http.ResponseWriter, r *http.Request, u *User) er
 		if _, err := tx.Exec(r.Context(), `DELETE FROM sessions WHERE user_id = $1 AND token_hash <> $2`, u.ID, hashToken(c.Value)); err != nil {
 			return err
 		}
+		if err := s.auditUser(r.Context(), tx, u.ID, "password.set", "user", u.ID, nil); err != nil {
+			return err
+		}
 		return ok(w, map[string]bool{"ok": true})
 	})
 }

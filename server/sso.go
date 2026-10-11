@@ -194,7 +194,7 @@ func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		if current != nil {
-			return nil
+			return s.auditUser(ctx, tx, userID, "identity.link", "identity", p.Name, map[string]any{"email": pu.Email})
 		}
 		return s.startSession(ctx, w, tx, userID)
 	})
@@ -404,6 +404,9 @@ func (s *Server) unlinkIdentity(w http.ResponseWriter, r *http.Request, u *User)
 		}
 		if tag.RowsAffected() == 0 {
 			return errNotFound
+		}
+		if err := s.auditUser(r.Context(), tx, u.ID, "identity.unlink", "identity", provider, nil); err != nil {
+			return err
 		}
 		return ok(w, map[string]bool{"ok": true})
 	})

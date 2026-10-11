@@ -3258,7 +3258,13 @@ button.crumb:hover {
   gap: 8px;
   flex-wrap: wrap;
 }
-.invite-box .field-input {
+.invite-box select.field-input {
+  flex: 0 0 auto;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 13px;
+}
+.invite-box input.field-input {
   flex: 1;
   min-width: 260px;
   font-family: var(--mono);
@@ -4529,4 +4535,57 @@ select.field-input {
   font: 500 13px/20px var(--mono);
   word-break: break-all;
   user-select: all;
+}
+
+/* Roles */
+.plain-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+fieldset.plain-fieldset:disabled .inline-edit,
+fieldset.plain-fieldset:disabled [contenteditable] {
+  pointer-events: none;
+}
+.read-only .dep-label .btn,
+.read-only .dep-row .icon-btn,
+.read-only .add-child,
+.read-only .link-btn {
+  display: none;
+}
+.view-only {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--neutral-bg);
+  color: var(--text-subtle);
+  font-size: 13px;
+  font-weight: 550;
+}
+.audit-list {
+  gap: 0;
+}
+.audit-row {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.audit-row:first-child {
+  border-top: 0;
+}
+.audit-when {
+  color: var(--text-subtlest);
+}
+@media (max-width: 640px) {
+  .audit-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
 }
