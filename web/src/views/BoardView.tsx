@@ -16,6 +16,8 @@ interface Lane {
   icon?: React.ReactNode
 }
 
+const CARD_PAGE = 100
+
 export function BoardView() {
   const d = useProject()
   const canEdit = d.role !== 'viewer'
@@ -29,6 +31,8 @@ export function BoardView() {
   const dragging = useRef<string | null>(null)
 
   const visible = d.work.filter(match)
+  // Thousands of cards in one column are slow to render and impossible to scan; show them a page at a time.
+  const [shown, setShown] = useState<Record<string, number>>({})
 
   const related = useMemo(() => {
     const map = new Map<string, Relation>()
@@ -197,7 +201,7 @@ export function BoardView() {
                           drop(st, lane.id)
                         }}
                       >
-                        {cards.map((i) => (
+                        {cards.slice(0, shown[cellKey] ?? CARD_PAGE).map((i) => (
                           <IssueCard
                             key={i.id}
                             issue={i}
@@ -208,6 +212,11 @@ export function BoardView() {
                             onDropBefore={(beforeId) => drop(st, lane.id, beforeId)}
                           />
                         ))}
+                        {cards.length > (shown[cellKey] ?? CARD_PAGE) && (
+                          <button className="quick-create" onClick={() => setShown((s) => ({ ...s, [cellKey]: (s[cellKey] ?? CARD_PAGE) + CARD_PAGE }))}>
+                            Show {Math.min(CARD_PAGE, cards.length - (shown[cellKey] ?? CARD_PAGE))} more of {cards.length - (shown[cellKey] ?? CARD_PAGE)}
+                          </button>
+                        )}
                         {colIdx === 0 && canEdit && <QuickCreate status={st} lane={lane.id} groupBy={groupBy} />}
                       </div>
                     )

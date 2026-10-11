@@ -157,7 +157,9 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request, u *User) err
 		return err
 	}
 	snap := projectSnapshot{Role: role.String()}
-	if err := tx.QueryRow(ctx, `SELECT coalesce(max(id), 0) FROM events`).Scan(&snap.Seq); err != nil {
+	// Per project, not global: a project's committed events are a prefix of its ids (see publish),
+	// so anything still in flight here will arrive with a higher seq.
+	if err := tx.QueryRow(ctx, `SELECT coalesce(max(id), 0) FROM events WHERE project_id = $1`, id).Scan(&snap.Seq); err != nil {
 		return err
 	}
 	p := &snap.Project

@@ -6,6 +6,7 @@ import { api } from '../api'
 import { estimateQuality } from '../lib/quality'
 import type { Calibration, Category, EstimateQuality, Issue, Member, ServerForecast, Status } from '../types'
 import { useToast } from '../ui/toast'
+import type { ConfidenceRequest } from '../lib/confidence.worker'
 import { ProjectStore, type ProjectState } from './project'
 
 export interface ProjectData extends ProjectState {
@@ -50,8 +51,49 @@ export function ProjectProvider({ projectId, children }: { projectId: string; ch
 
   const state = useSyncExternalStore(store.subscribe, store.getState)
   const server = useServerForecast(projectId, state)
-  const data = useMemo(() => derive(store, state, server), [store, state, server])
+  const [refined, setRefined] = useState<Refined | null>(null)
+  const data = useMemo(() => derive(store, state, server, refined), [store, state, server, refined])
+  useRefinedConfidence(setRefined)
   return <Ctx.Provider value={data}>{children}</Ctx.Provider>
+}
+
+/**
+ * Plans above this many issues get their full simulation in a worker. Until it answers, the views
+ * show a quick, smaller simulation of the same plan, so an edit never blocks the page.
+ */
+const WORKER_THRESHOLD = 800
+const QUICK_RUNS = 100
+
+interface Refined {
+  key: string
+  confidence: Confidence
+}
+
+let worker: Worker | null = null
+let pending: ConfidenceRequest | null = null
+let deliver: ((r: Refined) => void) | null = null
+
+function requestConfidence(req: ConfidenceRequest) {
+  if (typeof Worker === 'undefined') return
+  if (!worker) {
+    worker = new Worker(new URL('../lib/confidence.worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (e: MessageEvent<Refined>) => {
+      // Only the latest plan matters; a stale answer is dropped.
+      if (e.data.key === planCache.key) deliver?.(e.data)
+    }
+  }
+  pending = req
+  worker.postMessage(req)
+}
+
+function useRefinedConfidence(set: (r: Refined) => void) {
+  useEffect(() => {
+    deliver = set
+    if (pending && pending.key === planCache.key) worker?.postMessage(pending)
+    return () => {
+      if (deliver === set) deliver = null
+    }
+  }, [set])
 }
 
 /**
@@ -74,7 +116,7 @@ function useServerForecast(projectId: string, s: ProjectState) {
   return server
 }
 
-function derive(store: ProjectStore, s: ProjectState, server: ServerForecast | null): ProjectData {
+function derive(store: ProjectStore, s: ProjectState, server: ServerForecast | null, refined: Refined | null): ProjectData {
   const statusMap = new Map(s.statuses.map((st) => [st.id, st]))
   const issueMap = new Map(s.issues.map((i) => [i.id, i]))
   const memberMap = new Map(s.members.map((m) => [m.id, m]))
@@ -85,13 +127,18 @@ function derive(store: ProjectStore, s: ProjectState, server: ServerForecast | n
 
   const blockers = new Map<string, string[]>()
   const blocks = new Map<string, string[]>()
+  const push = <V,>(m: Map<string, V[]>, k: string, v: V) => {
+    const list = m.get(k)
+    if (list) list.push(v)
+    else m.set(k, [v])
+  }
   for (const l of s.links) {
     if (!issueMap.has(l.blockerId) || !issueMap.has(l.blockedId)) continue
-    blockers.set(l.blockedId, [...(blockers.get(l.blockedId) ?? []), l.blockerId])
-    blocks.set(l.blockerId, [...(blocks.get(l.blockerId) ?? []), l.blockedId])
+    push(blockers, l.blockedId, l.blockerId)
+    push(blocks, l.blockerId, l.blockedId)
   }
   const children = new Map<string, Issue[]>()
-  for (const i of s.issues) if (i.epicId) children.set(i.epicId, [...(children.get(i.epicId) ?? []), i])
+  for (const i of s.issues) if (i.epicId) push(children, i.epicId, i)
 
   const workIds = new Set(work.map((i) => i.id))
   const nodes: GraphNode[] = work.map((i) => ({
@@ -110,8 +157,15 @@ function derive(store: ProjectStore, s: ProjectState, server: ServerForecast | n
     planCache.key = planKey
     planCache.analysis = analysis
     planCache.forecasts = forecast(analysis, dueDates)
-    planCache.confidence = simulateConfidence(nodes, analysis, dueDates, spreadFrom((id) => types.get(id), spreads))
+    const spread = spreadFrom((id) => types.get(id), spreads)
+    if (nodes.length > WORKER_THRESHOLD && typeof Worker !== 'undefined') {
+      planCache.confidence = simulateConfidence(nodes, analysis, dueDates, spread, QUICK_RUNS)
+      requestConfidence({ key: planKey, nodes, dueDates: [...dueDates], types: Object.fromEntries(types), spreads })
+    } else {
+      planCache.confidence = simulateConfidence(nodes, analysis, dueDates, spread)
+    }
   }
+  if (refined && refined.key === planCache.key) planCache.confidence = refined.confidence
   const { analysis, forecasts, confidence } = planCache
   const byNumber = new Map(s.issues.map((i) => [i.number, i]))
   const toIssues = (ids: string[] | undefined) => (ids ?? []).map((id) => issueMap.get(id)!).filter(Boolean)

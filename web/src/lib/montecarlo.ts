@@ -64,7 +64,7 @@ function triangular(rand: () => number, lo: number, mode: number, hi: number) {
   return u < c ? lo + Math.sqrt(u * (hi - lo) * (mode - lo)) : hi - Math.sqrt((1 - u) * (hi - lo) * (hi - mode))
 }
 
-const percentile = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]
+const percentile = (sorted: ArrayLike<number>, p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]
 
 export function simulateConfidence(
   nodes: GraphNode[],
@@ -93,8 +93,9 @@ export function simulateConfidence(
   const runSeed = seed ?? hash(order.join() + est.join())
   const rand = mulberry32(runSeed)
   const finishes = new Float64Array(order.length)
-  const totals: number[] = []
-  const perTask = order.map(() => [] as number[])
+  const totals = new Float64Array(runs)
+  // Every run's finish for every task, task-major (perTask[k * runs + r]), in one allocation.
+  const perTask = new Float64Array(order.length * runs)
   const hits = new Array(order.length).fill(0)
 
   for (let r = 0; r < runs; r++) {
@@ -106,20 +107,20 @@ export function simulateConfidence(
       const d = est[k] === 0 ? 0 : triangular(rand, est[k] * lo, est[k], est[k] * hi)
       const f = start + d
       finishes[k] = f
-      perTask[k].push(f)
+      perTask[k * runs + r] = f
       if (f > total) total = f
       // Finishing within working day `dueCol` means ceil(f) - 1 <= dueCol.
       if (dueCol[k] >= 0 && Math.ceil(f) - 1 <= dueCol[k]) hits[k]++
     }
-    totals.push(total)
+    totals[r] = total
   }
 
-  totals.sort((a, b) => a - b)
+  totals.sort() // typed arrays sort numerically
   const onTime = new Map<string, number>()
   const p85ById = new Map<string, number>()
   order.forEach((id, k) => {
     if (dueCol[k] >= 0) onTime.set(id, hits[k] / runs)
-    p85ById.set(id, percentile(perTask[k].sort((a, b) => a - b), 0.85))
+    p85ById.set(id, percentile(perTask.subarray(k * runs, (k + 1) * runs).sort(), 0.85))
   })
   const histogram: number[] = []
   for (const t of totals) {

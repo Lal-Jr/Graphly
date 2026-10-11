@@ -15,10 +15,10 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import dagre from '@dagrejs/dagre'
 import { FilterBar } from '../components/FilterBar'
 import { formatDate } from '../lib/forecast'
 import { wouldCreateCycle } from '../lib/graph'
+import { layoutGraph, type Positions } from '../lib/layout'
 import { useFilters } from '../store/filters'
 import { useIssueParam } from '../store/nav'
 import { useSession } from '../store/session'
@@ -29,8 +29,10 @@ import { PriorityIcon, TypeIcon } from '../ui/icons'
 import { Avatar, AvatarStack, Lozenge } from '../ui/primitives'
 import { useToast } from '../ui/toast'
 
-const NODE_W = 240
-const NODE_H = 100
+/** Above this many issues the layout runs in a worker, so the page stays responsive meanwhile. */
+const SYNC_LAYOUT = 150
+/** Above this many the view starts focused on the critical path and its neighbours. */
+const FOCUS_LIMIT = 400
 
 type NodeData = { issue: Issue; dim: boolean }
 type IssueNode = Node<NodeData, 'issue'>
@@ -73,17 +75,26 @@ function IssueNodeView({ data }: NodeProps<IssueNode>) {
 
 const nodeTypes = { issue: IssueNodeView }
 
-function layout(issues: Issue[], edges: [string, string][]) {
-  const g = new dagre.graphlib.Graph()
-  g.setGraph({ rankdir: 'LR', nodesep: 24, ranksep: 64, marginx: 24, marginy: 24 })
-  g.setDefaultEdgeLabel(() => ({}))
-  for (const i of issues) g.setNode(i.id, { width: NODE_W, height: NODE_H })
-  for (const [a, b] of edges) g.setEdge(a, b)
-  dagre.layout(g)
-  return new Map(issues.map((i) => {
-    const n = g.node(i.id)
-    return [i.id, { x: n.x - NODE_W / 2, y: n.y - NODE_H / 2 }]
-  }))
+let layoutWorker: Worker | null = null
+
+/** Positions for a graph: computed inline when small, in a worker when big (null until ready). */
+function useLayout(ids: string[], edges: [string, string][], key: string): Positions | null {
+  const [result, setResult] = useState<{ key: string; positions: Positions } | null>(null)
+  const small = ids.length <= SYNC_LAYOUT || typeof Worker === 'undefined'
+  const inline = useMemo(() => (small ? layoutGraph(ids, edges) : null), [key, small]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (small) return
+    layoutWorker ??= new Worker(new URL('../lib/layout.worker.ts', import.meta.url), { type: 'module' })
+    const w = layoutWorker
+    const onMessage = (e: MessageEvent<{ key: string; positions: Positions }>) => {
+      if (e.data.key === key) setResult(e.data)
+    }
+    w.addEventListener('message', onMessage)
+    w.postMessage({ key, ids, edges })
+    return () => w.removeEventListener('message', onMessage)
+  }, [key, small]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (inline) return inline
+  return result?.key === key ? result.positions : null
 }
 
 export function GraphView() {
@@ -95,11 +106,12 @@ export function GraphView() {
   const [hideDone, setHideDone] = useState(true)
   const [criticalOnly, setCriticalOnly] = useState(false)
   const [linkedOnly, setLinkedOnly] = useState(false)
+  const [showAll, setShowAll] = useState(false)
   const pinned = useRef(new Map<string, { x: number; y: number }>())
   const [nodes, setNodes] = useState<IssueNode[]>([])
 
   const linked = useMemo(() => new Set(d.links.flatMap((l) => [l.blockerId, l.blockedId])), [d.links])
-  const visible = useMemo(
+  const candidates = useMemo(
     () =>
       d.work.filter(
         (i) =>
@@ -109,15 +121,29 @@ export function GraphView() {
       ),
     [d, hideDone, criticalOnly, linkedOnly, linked],
   )
-  const ids = useMemo(() => new Set(visible.map((i) => i.id)), [visible])
+  // A graph of thousands of cards is unreadable and slow to lay out, so big projects open on the
+  // critical path and the issues directly around it. "Show all" lifts that.
+  const focused = !showAll && candidates.length > FOCUS_LIMIT
+  const visible = useMemo(() => {
+    if (!focused) return candidates
+    const keep = new Set(d.analysis.criticalPath)
+    for (const id of d.analysis.criticalPath) {
+      for (const b of d.analysis.blockedBy.get(id) ?? []) keep.add(b)
+      for (const x of d.analysis.dependents.get(id) ?? []) keep.add(x)
+    }
+    return candidates.filter((i) => keep.has(i.id)).slice(0, FOCUS_LIMIT)
+  }, [candidates, focused, d.analysis])
+  const visibleIds = useMemo(() => new Set(visible.map((i) => i.id)), [visible])
   const edgePairs = useMemo(
-    () => d.links.filter((l) => ids.has(l.blockerId) && ids.has(l.blockedId)).map((l) => [l.blockerId, l.blockedId] as [string, string]),
-    [d.links, ids],
+    () => d.links.filter((l) => visibleIds.has(l.blockerId) && visibleIds.has(l.blockedId)).map((l) => [l.blockerId, l.blockedId] as [string, string]),
+    [d.links, visibleIds],
   )
   const structure = visible.map((i) => i.id).join() + '|' + edgePairs.map((e) => e.join('>')).join()
-  const positions = useMemo(() => layout(visible, edgePairs), [structure]) // eslint-disable-line react-hooks/exhaustive-deps
+  const ids = useMemo(() => visible.map((i) => i.id), [visible])
+  const positions = useLayout(ids, edgePairs, structure)
 
   useEffect(() => {
+    if (!positions) return
     setNodes((prev) => {
       const selected = new Set(prev.filter((n) => n.selected).map((n) => n.id))
       return visible.map((i) => ({
@@ -182,14 +208,24 @@ export function GraphView() {
           className="btn btn-default btn-sm"
           onClick={() => {
             pinned.current.clear()
-            setNodes((ns) => ns.map((n) => ({ ...n, position: positions.get(n.id) ?? n.position })))
+            setNodes((ns) => ns.map((n) => ({ ...n, position: positions?.get(n.id) ?? n.position })))
           }}
         >
           Re-layout
         </button>
       </FilterBar>
+      {focused && (
+        <div className="graph-focus-note">
+          {candidates.length.toLocaleString()} issues match. Showing the {visible.length} on and around the critical path.
+          <button className="btn btn-default btn-sm" onClick={() => setShowAll(true)}>
+            Show all {candidates.length.toLocaleString()}
+          </button>
+        </div>
+      )}
       <div className="graph-canvas">
+        {!positions && <div className="graph-laying-out muted">Laying out {visible.length.toLocaleString()} issues…</div>}
         <ReactFlow
+          onlyRenderVisibleElements={nodes.length > 200}
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}

@@ -32,10 +32,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 // configure (optional) adjusts the config before the server is built.
 func newTestApp(t *testing.T, configure func(*Config)) (*httptest.Server, *Server) {
 	t.Helper()
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		url = "postgres://localhost:5432/graphly_test?sslmode=disable"
-	}
+	url := testDatabaseURL()
 	ctx, cancel := context.WithCancel(context.Background())
 	pool, err := pgxpool.New(ctx, url)
 	if err == nil {
@@ -53,6 +50,31 @@ func newTestApp(t *testing.T, configure func(*Config)) (*httptest.Server, *Serve
 	if err := migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	return startInstance(t, ctx, pool, configure)
+}
+
+func testDatabaseURL() string {
+	if url := os.Getenv("TEST_DATABASE_URL"); url != "" {
+		return url
+	}
+	return "postgres://localhost:5432/graphly_test?sslmode=disable"
+}
+
+// newPeer starts another instance against the database the last newTestApp prepared, with its
+// own pool, hub and HTTP server, the way a second replica would run in production.
+func newPeer(t *testing.T, configure func(*Config)) (*httptest.Server, *Server) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	pool, err := pgxpool.New(ctx, testDatabaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	t.Cleanup(cancel)
+	return startInstance(t, ctx, pool, configure)
+}
+
+func startInstance(t *testing.T, ctx context.Context, pool *pgxpool.Pool, configure func(*Config)) (*httptest.Server, *Server) {
 	hub := NewHub(pool)
 	go hub.Run(ctx)
 	cfg := Config{}

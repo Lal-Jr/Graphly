@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { FilterBar } from '../components/FilterBar'
 import { addWorkdays, formatDate, nextWorkday, parseDate, simulateSlip, workdaysBetween } from '../lib/forecast'
 import { useFilters } from '../store/filters'
@@ -7,6 +7,7 @@ import { useProject } from '../store/useProject'
 import type { Issue } from '../types'
 import { Icon, TypeIcon } from '../ui/icons'
 import { Avatar, EmptyState, MenuList, Popover } from '../ui/primitives'
+import { useRowWindow } from '../ui/rowWindow'
 
 const COL = 30 // px per working day
 
@@ -33,12 +34,20 @@ export function TimelineView() {
   const rows: Row[] = []
   if (byEpic) {
     const groups = new Map<string, Issue[]>()
-    for (const i of scheduled) groups.set(i.epicId ?? '', [...(groups.get(i.epicId ?? '') ?? []), i])
+    for (const i of scheduled) {
+      const g = groups.get(i.epicId ?? '')
+      if (g) g.push(i)
+      else groups.set(i.epicId ?? '', [i])
+    }
     for (const [epicId, items] of groups) {
       rows.push({ kind: 'epic', epic: epicId ? d.issueMap.get(epicId) ?? null : null, items })
       for (const i of items) rows.push({ kind: 'issue', issue: i })
     }
   } else scheduled.forEach((i) => rows.push({ kind: 'issue', issue: i }))
+
+  const scroller = useRef<HTMLDivElement>(null)
+  const win = useRowWindow(rows.length, scroller, '.tl-label')
+  const spacer = (rowCount: number) => <div aria-hidden style={{ gridColumn: '1 / -1', height: rowCount * win.rowH }} />
 
   const finish = d.analysis.remaining > 0 ? addWorkdays(origin, Math.ceil(d.analysis.remaining) - 1) : origin
   const simFinish = sim && sim.after > 0 ? addWorkdays(origin, Math.ceil(sim.after) - 1) : null
@@ -173,7 +182,7 @@ export function TimelineView() {
           <p className="muted">Open issues with estimates appear here, laid out by their dependencies.</p>
         </EmptyState>
       ) : (
-        <div className="timeline-scroll">
+        <div className="timeline-scroll" ref={scroller}>
           <div className="timeline" style={{ gridTemplateColumns: `320px ${span * COL}px` }}>
             <div className="tl-corner">Issue</div>
             <div className="tl-axis">
@@ -185,7 +194,9 @@ export function TimelineView() {
               ))}
             </div>
 
-            {rows.map((row, idx) => {
+            {win.start > 0 && spacer(win.start)}
+            {rows.slice(win.start, win.end).map((row, k) => {
+              const idx = win.start + k
               if (row.kind === 'epic') {
                 const starts = row.items.map((i) => d.analysis.schedule.get(i.id)!.earliestStart)
                 const ends = row.items.map((i) => d.analysis.schedule.get(i.id)!.earliestFinish)
@@ -246,6 +257,7 @@ export function TimelineView() {
                 </div>
               )
             })}
+            {win.end < rows.length && spacer(rows.length - win.end)}
             <div className="tl-today" style={{ left: 320 + COL / 2 }} />
           </div>
         </div>

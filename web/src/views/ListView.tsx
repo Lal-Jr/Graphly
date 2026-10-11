@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { AssigneePicker, StatusButton } from '../components/fields'
 import { FilterBar } from '../components/FilterBar'
 import { formatDate } from '../lib/forecast'
@@ -8,6 +8,7 @@ import { useProject } from '../store/useProject'
 import { PRIORITY_WEIGHT, type Issue } from '../types'
 import { Icon, PriorityIcon, TypeIcon } from '../ui/icons'
 import { EmptyState } from '../ui/primitives'
+import { useRowWindow } from '../ui/rowWindow'
 
 type SortKey = 'rank' | 'key' | 'title' | 'status' | 'assignee' | 'priority' | 'estimate' | 'due' | 'forecast' | 'slack'
 
@@ -49,6 +50,9 @@ export function ListView() {
     return (x < y ? -1 : x > y ? 1 : 0) * sort.dir
   })
 
+  const scroller = useRef<HTMLDivElement>(null)
+  const win = useRowWindow(rows.length, scroller, 'tbody tr[data-row]')
+
   const Th = ({ k, children, className = '' }: { k: SortKey; children: React.ReactNode; className?: string }) => (
     <th className={className}>
       <button className={`th-sort${sort.key === k ? ' active' : ''}`} onClick={() => setSort((s) => ({ key: k, dir: s.key === k ? ((-s.dir) as 1 | -1) : 1 }))}>
@@ -65,7 +69,7 @@ export function ListView() {
           <input type="checkbox" checked={showEpics} onChange={(e) => setShowEpics(e.target.checked)} /> Show epics
         </label>
       </FilterBar>
-      <div className="table-wrap">
+      <div className="table-wrap" ref={scroller}>
         {rows.length === 0 ? (
           <EmptyState icon={<Icon name="list" size={32} />} title="No issues match">
             <p className="muted">Try clearing some filters.</p>
@@ -88,13 +92,14 @@ export function ListView() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((i) => {
+              {win.start > 0 && <tr aria-hidden style={{ height: win.start * win.rowH }} />}
+              {rows.slice(win.start, win.end).map((i) => {
                 const fc = d.forecasts.get(i.id)
                 const sched = d.analysis.schedule.get(i.id)
                 const blockers = d.analysis.blockedBy.get(i.id) ?? []
                 const done = d.category(i) === 'done'
                 return (
-                  <tr key={i.id} onClick={() => openIssue(d.keyOf(i))} className={done ? 'is-done' : ''}>
+                  <tr key={i.id} data-row onClick={() => openIssue(d.keyOf(i))} className={done ? 'is-done' : ''}>
                     <td>
                       <TypeIcon type={i.type} />
                     </td>
@@ -141,6 +146,7 @@ export function ListView() {
                   </tr>
                 )
               })}
+              {win.end < rows.length && <tr aria-hidden style={{ height: (rows.length - win.end) * win.rowH }} />}
             </tbody>
           </table>
         )}

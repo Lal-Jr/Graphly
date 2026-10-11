@@ -32,6 +32,11 @@ func NextWorkday(t time.Time) time.Time {
 // AddWorkdays moves n working days forward from the first working day on or after t.
 func AddWorkdays(t time.Time, n int) time.Time {
 	x := NextWorkday(t)
+	// Whole weeks at once: any 7 consecutive days hold exactly 5 working days.
+	if n >= 5 {
+		x = x.AddDate(0, 0, n/5*7)
+		n %= 5
+	}
 	for i := 0; i < n; {
 		x = nextDay(x)
 		if !isWeekend(x) {
@@ -44,8 +49,12 @@ func AddWorkdays(t time.Time, n int) time.Time {
 // WorkdaysBetween counts working days from a to b (positive when b is later), or 0 if b is not after a.
 func WorkdaysBetween(a, b time.Time) int {
 	n := 0
-	end := Day(b)
-	for x := Day(a); x.Before(end); x = nextDay(x) {
+	x, end := Day(a), Day(b)
+	if days := int(end.Sub(x).Hours() / 24); days >= 7 {
+		n = days / 7 * 5
+		x = x.AddDate(0, 0, days/7*7)
+	}
+	for ; x.Before(end); x = nextDay(x) {
 		if !isWeekend(nextDay(x)) {
 			n++
 		}

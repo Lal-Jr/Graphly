@@ -50,10 +50,12 @@ func accessChanged(ctx context.Context, tx pgx.Tx, wsID, projectID, userID strin
 	projects := []string{projectID}
 	if projectID == "" {
 		var err error
-		if projects, err = collect(scanString)(tx.Query(ctx, `SELECT id FROM projects WHERE workspace_id = $1`, wsID)); err != nil {
+		if projects, err = collect(scanString)(tx.Query(ctx, `SELECT id FROM projects WHERE workspace_id = $1 ORDER BY id`, wsID)); err != nil {
 			return err
 		}
 	}
+	// Always in id order, so two transactions that each publish to several projects take the
+	// per-project event locks in the same order and can't deadlock.
 	for _, p := range projects {
 		if err := publish(ctx, tx, p, "access.changed", map[string]any{"userId": userID}); err != nil {
 			return err

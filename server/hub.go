@@ -25,6 +25,12 @@ const (
 
 // publish records a realtime event inside the caller's transaction. NOTIFY is delivered
 // only on commit, so clients never see changes that were rolled back.
+//
+// Clients skip any seq at or below the last one they applied, so within a project event ids must
+// become visible in increasing order. A sequence alone doesn't promise that: two transactions can
+// take ids 9 and 10 and commit 10 first, and the client would then drop 9. The project-scoped
+// advisory lock, taken before the id is allocated and held until commit, serializes publishers per
+// project, so the committed events of a project are always a gap-free prefix of its ids.
 func publish(ctx context.Context, tx pgx.Tx, projectID, typ string, data map[string]any) error {
 	data["type"] = typ
 	payload, err := json.Marshal(data)
@@ -32,7 +38,9 @@ func publish(ctx context.Context, tx pgx.Tx, projectID, typ string, data map[str
 		return err
 	}
 	var id int64
-	if err := tx.QueryRow(ctx, `INSERT INTO events (project_id, payload) VALUES ($1, $2) RETURNING id`, projectID, payload).Scan(&id); err != nil {
+	if err := tx.QueryRow(ctx, `INSERT INTO events (project_id, payload)
+		SELECT $1::uuid, $2 FROM (SELECT pg_advisory_xact_lock(hashtextextended('graphly_events:' || $1::text, 0))) AS l
+		RETURNING id`, projectID, payload).Scan(&id); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `SELECT pg_notify($1, $2)`, eventsChannel, strconv.FormatInt(id, 10))

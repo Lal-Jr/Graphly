@@ -7,6 +7,7 @@ package forecast
 
 import (
 	"math"
+	"math/bits"
 	"sort"
 )
 
@@ -103,39 +104,36 @@ func index(nodes []Node) map[string]*Node {
 	return m
 }
 
-// FindCycles returns the ids of tasks in a dependency cycle (Tarjan's SCC, iterative so a long
-// chain can't exhaust the stack).
-func FindCycles(nodes []Node) map[string]bool {
-	byID := index(nodes)
+// components returns the strongly connected components of ids under next, in Tarjan's order:
+// every component comes after all the components it reaches. Iterative, so a long chain can't
+// exhaust the stack.
+func components(ids []string, next func(string) []string) [][]string {
 	idx := map[string]int{}
 	low := map[string]int{}
 	onStack := map[string]bool{}
 	var stack []string
-	result := map[string]bool{}
+	var out [][]string
 	counter := 0
 
 	type frame struct {
 		id string
-		i  int // next dependency to look at
+		i  int // next neighbour to look at
 	}
-	for _, root := range nodes {
-		if _, ok := idx[root.ID]; ok {
+	for _, root := range ids {
+		if _, ok := idx[root]; ok {
 			continue
 		}
-		call := []frame{{id: root.ID}}
-		idx[root.ID], low[root.ID] = counter, counter
+		call := []frame{{id: root}}
+		idx[root], low[root] = counter, counter
 		counter++
-		stack = append(stack, root.ID)
-		onStack[root.ID] = true
+		stack = append(stack, root)
+		onStack[root] = true
 		for len(call) > 0 {
 			f := &call[len(call)-1]
-			deps := byID[f.id].DependsOn
+			deps := next(f.id)
 			if f.i < len(deps) {
 				dep := deps[f.i]
 				f.i++
-				if byID[dep] == nil {
-					continue
-				}
 				if _, seen := idx[dep]; !seen {
 					idx[dep], low[dep] = counter, counter
 					counter++
@@ -147,7 +145,7 @@ func FindCycles(nodes []Node) map[string]bool {
 				}
 				continue
 			}
-			// All dependencies visited: close the component if this is its root, then return to the caller.
+			// All neighbours visited: close the component if this is its root, then return to the caller.
 			id := f.id
 			if low[id] == idx[id] {
 				var component []string
@@ -160,15 +158,7 @@ func FindCycles(nodes []Node) map[string]bool {
 						break
 					}
 				}
-				selfLoop := false
-				for _, d := range byID[id].DependsOn {
-					selfLoop = selfLoop || d == id
-				}
-				if len(component) > 1 || selfLoop {
-					for _, c := range component {
-						result[c] = true
-					}
-				}
+				out = append(out, component)
 			}
 			call = call[:len(call)-1]
 			if len(call) > 0 {
@@ -177,7 +167,85 @@ func FindCycles(nodes []Node) map[string]bool {
 			}
 		}
 	}
+	return out
+}
+
+// FindCycles returns the ids of tasks in a dependency cycle.
+func FindCycles(nodes []Node) map[string]bool {
+	byID := index(nodes)
+	ids := make([]string, len(nodes))
+	for i := range nodes {
+		ids[i] = nodes[i].ID
+	}
+	deps := func(id string) []string {
+		var out []string
+		for _, d := range byID[id].DependsOn {
+			if byID[d] != nil {
+				out = append(out, d)
+			}
+		}
+		return out
+	}
+	result := map[string]bool{}
+	for _, c := range components(ids, deps) {
+		selfLoop := false
+		for _, d := range byID[c[0]].DependsOn {
+			selfLoop = selfLoop || d == c[0]
+		}
+		if len(c) > 1 || selfLoop {
+			for _, id := range c {
+				result[id] = true
+			}
+		}
+	}
 	return result
+}
+
+// transitiveImpact counts, for every task reachable from keys, how many tasks transitively wait on
+// it (itself excluded). One DFS per task is quadratic, so cycles are collapsed into components and,
+// walking them so each comes after those downstream of it, bitsets of what each reaches are ORed.
+func transitiveImpact(keys []string, dependents map[string][]string) map[string]int {
+	next := func(id string) []string { return dependents[id] }
+	comps := components(keys, next)
+	compOf := map[string]int{}
+	bit := map[string]int{}
+	for k, c := range comps {
+		for _, id := range c {
+			compOf[id] = k
+			bit[id] = len(bit)
+		}
+	}
+	words := (len(bit) + 63) / 64
+	// reach[k]: the tasks strictly downstream of component k (its own members excluded).
+	reach := make([][]uint64, len(comps))
+	impact := make(map[string]int, len(bit))
+	for k, c := range comps {
+		r := make([]uint64, words)
+		for _, id := range c {
+			for _, w := range next(id) {
+				d := compOf[w]
+				if d == k {
+					continue
+				}
+				for i, v := range reach[d] {
+					r[i] |= v
+				}
+				for _, m := range comps[d] {
+					b := bit[m]
+					r[b/64] |= 1 << (b % 64)
+				}
+			}
+		}
+		reach[k] = r
+		n := 0
+		for _, v := range r {
+			n += bits.OnesCount64(v)
+		}
+		for _, id := range c {
+			impact[id] = n + len(c) - 1
+		}
+	}
+	return impact
 }
 
 // Analyze computes blockers, impact and the critical-path schedule.
@@ -222,20 +290,10 @@ func Analyze(nodes []Node) *Analysis {
 		}
 	}
 
+	impact := transitiveImpact(a.dependentOrder, a.Dependents)
 	for _, id := range a.dependentOrder {
-		seen := map[string]bool{}
-		stack := append([]string(nil), a.Dependents[id]...)
-		for len(stack) > 0 {
-			cur := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			if seen[cur] || cur == id {
-				continue
-			}
-			seen[cur] = true
-			stack = append(stack, a.Dependents[cur]...)
-		}
-		a.Impact[id] = len(seen)
-		a.TopBlockers = append(a.TopBlockers, Blocker{id, len(seen)})
+		a.Impact[id] = impact[id]
+		a.TopBlockers = append(a.TopBlockers, Blocker{id, impact[id]})
 	}
 	sort.SliceStable(a.TopBlockers, func(i, j int) bool { return a.TopBlockers[i].Impact > a.TopBlockers[j].Impact })
 

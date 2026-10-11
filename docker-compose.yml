@@ -1,4 +1,8 @@
 # Local production-like stack: Postgres + Graphly on http://localhost:8080
+#
+#   docker compose up                    one instance
+#   docker compose --profile multi up    a second instance on :8081 against the same database,
+#                                        for checking realtime fan-out (scripts/multi-instance.sh)
 services:
   db:
     image: postgres:18-alpine
@@ -21,6 +25,20 @@ services:
       SECURE_COOKIES: 'false'
     ports:
       - '8080:8080'
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Same image and database as `app`. Realtime events, presence, the delivery outbox and the
+  # forecast job all coordinate through Postgres, so any number of these can run side by side.
+  app2:
+    profiles: [multi]
+    build: .
+    environment:
+      DATABASE_URL: postgres://graphly:graphly@db:5432/graphly?sslmode=disable
+      SECURE_COOKIES: 'false'
+    ports:
+      - '8081:8080'
     depends_on:
       db:
         condition: service_healthy

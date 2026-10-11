@@ -4596,3 +4596,21 @@ fieldset.plain-fieldset:disabled [contenteditable] {
   font: 600 11.5px/1 var(--mono);
   color: var(--text-subtle);
 }
+.graph-focus-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 12px 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--neutral-bg);
+  font-size: 13px;
+}
+.graph-laying-out {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 5;
+  pointer-events: none;
+}

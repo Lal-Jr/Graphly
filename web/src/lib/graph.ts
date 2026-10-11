@@ -60,46 +60,117 @@ export function wouldCreateCycle(tasks: GraphNode[], taskId: string, depId: stri
   return false
 }
 
-/** Tarjan's SCC — concurrent edits can merge into a cycle even though the UI prevents creating one. */
-export function findCycles(tasks: GraphNode[]): Set<string> {
-  const byId = new Map(tasks.map((t) => [t.id, t]))
+/**
+ * Strongly connected components of `ids` under `next`, in Tarjan's order: every component comes
+ * after all the components it reaches. Iterative, so a long dependency chain can't overflow the stack.
+ */
+export function components(ids: string[], next: (id: string) => readonly string[]): string[][] {
   const index = new Map<string, number>()
   const low = new Map<string, number>()
   const onStack = new Set<string>()
   const stack: string[] = []
-  const result = new Set<string>()
+  const out: string[][] = []
   let counter = 0
-
-  const visit = (id: string) => {
-    index.set(id, counter)
-    low.set(id, counter)
-    counter++
-    stack.push(id)
-    onStack.add(id)
-    for (const dep of byId.get(id)!.dependsOn) {
-      if (!byId.has(dep)) continue
-      if (!index.has(dep)) {
-        visit(dep)
-        low.set(id, Math.min(low.get(id)!, low.get(dep)!))
-      } else if (onStack.has(dep)) {
-        low.set(id, Math.min(low.get(id)!, index.get(dep)!))
+  for (const root of ids) {
+    if (index.has(root)) continue
+    const call: { id: string; i: number }[] = [{ id: root, i: 0 }]
+    index.set(root, counter)
+    low.set(root, counter++)
+    stack.push(root)
+    onStack.add(root)
+    while (call.length) {
+      const f = call[call.length - 1]
+      const deps = next(f.id)
+      if (f.i < deps.length) {
+        const dep = deps[f.i++]
+        if (!index.has(dep)) {
+          index.set(dep, counter)
+          low.set(dep, counter++)
+          stack.push(dep)
+          onStack.add(dep)
+          call.push({ id: dep, i: 0 })
+        } else if (onStack.has(dep)) {
+          low.set(f.id, Math.min(low.get(f.id)!, index.get(dep)!))
+        }
+        continue
+      }
+      const id = f.id
+      if (low.get(id) === index.get(id)) {
+        const component: string[] = []
+        let w: string
+        do {
+          w = stack.pop()!
+          onStack.delete(w)
+          component.push(w)
+        } while (w !== id)
+        out.push(component)
+      }
+      call.pop()
+      if (call.length) {
+        const parent = call[call.length - 1].id
+        low.set(parent, Math.min(low.get(parent)!, low.get(id)!))
       }
     }
-    if (low.get(id) === index.get(id)) {
-      const component: string[] = []
-      let w: string
-      do {
-        w = stack.pop()!
-        onStack.delete(w)
-        component.push(w)
-      } while (w !== id)
-      const selfLoop = byId.get(id)!.dependsOn.includes(id)
-      if (component.length > 1 || selfLoop) component.forEach((c) => result.add(c))
-    }
   }
+  return out
+}
 
-  for (const t of tasks) if (!index.has(t.id)) visit(t.id)
+/** Ids of tasks in a dependency cycle (concurrent edits can merge into one even though the UI prevents creating it). */
+export function findCycles(tasks: GraphNode[]): Set<string> {
+  const byId = new Map(tasks.map((t) => [t.id, t]))
+  const result = new Set<string>()
+  const deps = (id: string) => byId.get(id)!.dependsOn.filter((d) => byId.has(d))
+  for (const c of components(
+    tasks.map((t) => t.id),
+    deps,
+  )) {
+    if (c.length > 1 || byId.get(c[0])!.dependsOn.includes(c[0])) c.forEach((id) => result.add(id))
+  }
   return result
+}
+
+const popcount = (x: number) => {
+  x -= (x >>> 1) & 0x55555555
+  x = (x & 0x33333333) + ((x >>> 2) & 0x33333333)
+  return (((x + (x >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24
+}
+
+/**
+ * How many tasks transitively wait on each task: the size of its downstream set, itself excluded.
+ * One DFS per task is quadratic, so instead collapse cycles into components and, walking them so
+ * every component comes after those downstream of it, OR together bitsets of what each reaches.
+ */
+function transitiveImpact(keys: Iterable<string>, dependents: Map<string, string[]>): Map<string, number> {
+  const next = (id: string) => dependents.get(id) ?? []
+  const comps = components([...keys], next)
+  const compOf = new Map<string, number>()
+  comps.forEach((c, k) => c.forEach((id) => compOf.set(id, k)))
+  // Every task reachable from a key ends up in some component; give each a bit.
+  const bit = new Map<string, number>()
+  for (const c of comps) for (const id of c) bit.set(id, bit.size)
+  const words = (bit.size + 31) >>> 5
+  // reach[k]: the tasks strictly downstream of component k (its own members excluded).
+  const reach: Uint32Array[] = []
+  const impact = new Map<string, number>()
+  comps.forEach((c, k) => {
+    const r = new Uint32Array(words)
+    for (const id of c)
+      for (const w of next(id)) {
+        const d = compOf.get(w)!
+        if (d === k) continue
+        const rd = reach[d]
+        for (let i = 0; i < words; i++) r[i] |= rd[i]
+        for (const m of comps[d]) {
+          const b = bit.get(m)!
+          r[b >>> 5] |= 1 << (b & 31)
+        }
+      }
+    reach.push(r)
+    let n = 0
+    for (let i = 0; i < words; i++) n += popcount(r[i])
+    for (const id of c) impact.set(id, n + c.length - 1)
+  })
+  return impact
 }
 
 export function analyze(tasks: GraphNode[]): Analysis {
@@ -121,18 +192,10 @@ export function analyze(tasks: GraphNode[]): Analysis {
     }
   }
 
+  // Only tasks something waits on have an impact entry, in the order they were first seen.
+  const allImpact = transitiveImpact(dependents.keys(), dependents)
   const impact = new Map<string, number>()
-  for (const id of dependents.keys()) {
-    const seen = new Set<string>()
-    const stack = [...dependents.get(id)!]
-    while (stack.length) {
-      const cur = stack.pop()!
-      if (seen.has(cur) || cur === id) continue
-      seen.add(cur)
-      stack.push(...(dependents.get(cur) ?? []))
-    }
-    impact.set(id, seen.size)
-  }
+  for (const id of dependents.keys()) impact.set(id, allImpact.get(id)!)
   const topBlockers = [...impact.entries()]
     .map(([id, n]) => ({ id, impact: n }))
     .sort((a, b) => b.impact - a.impact)
@@ -155,8 +218,8 @@ export function analyze(tasks: GraphNode[]): Analysis {
   const indeg = new Map(nodes.map((t) => [t.id, preds.get(t.id)!.length]))
   const queue = nodes.filter((t) => indeg.get(t.id) === 0).map((t) => t.id)
   const order: string[] = []
-  while (queue.length) {
-    const id = queue.shift()!
+  for (let head = 0; head < queue.length; head++) {
+    const id = queue[head]
     order.push(id)
     for (const s of succs.get(id)!) {
       indeg.set(s, indeg.get(s)! - 1)
@@ -172,7 +235,8 @@ export function analyze(tasks: GraphNode[]): Analysis {
     es.set(id, start)
     ef.set(id, start + dur(id))
   }
-  const remaining = Math.max(0, ...order.map((id) => ef.get(id)!))
+  let remaining = 0
+  for (const id of order) remaining = Math.max(remaining, ef.get(id)!)
 
   const lf = new Map<string, number>()
   const ls = new Map<string, number>()

@@ -142,6 +142,12 @@ func main() {
 	if err := migrate(ctx, pool); err != nil {
 		fatal("migrate", err)
 	}
+	if len(os.Args) > 1 && os.Args[1] == "synthetic" {
+		if err := runSynthetic(ctx, pool, os.Args[2:]); err != nil {
+			fatal("synthetic", err)
+		}
+		return
+	}
 
 	hub := NewHub(pool)
 	go hub.Run(ctx)

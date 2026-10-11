@@ -12,9 +12,13 @@ export function nextWorkday(d: Date): Date {
   return x
 }
 
-/** Moves `n` working days forward from a working day. */
+/** Moves `n` working days forward from a working day. Whole weeks are skipped at once. */
 export function addWorkdays(d: Date, n: number): Date {
   let x = nextWorkday(d)
+  if (n >= 5) {
+    x = new Date(x.getFullYear(), x.getMonth(), x.getDate() + Math.floor(n / 5) * 7)
+    n %= 5
+  }
   for (let i = 0; i < n; ) {
     x = new Date(x.getFullYear(), x.getMonth(), x.getDate() + 1)
     if (!isWeekend(x)) i++
@@ -66,7 +70,15 @@ export function forecast(analysis: Analysis, dueDates: Map<string, string | null
 /** Working days from `a` to `b` (positive when b is later), or 0 if b is not after a. */
 export function workdaysBetween(a: Date, b: Date): number {
   let n = 0
-  for (let x = startOfDay(a); x < startOfDay(b); x = new Date(x.getFullYear(), x.getMonth(), x.getDate() + 1)) {
+  let x = startOfDay(a)
+  const end = startOfDay(b)
+  // Any 7 consecutive days hold exactly 5 working days. Count calendar days in UTC so a DST change can't skew them.
+  const days = Math.round((Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) - Date.UTC(x.getFullYear(), x.getMonth(), x.getDate())) / DAY)
+  if (days >= 7) {
+    n = Math.floor(days / 7) * 5
+    x = new Date(x.getFullYear(), x.getMonth(), x.getDate() + Math.floor(days / 7) * 7)
+  }
+  for (; x < end; x = new Date(x.getFullYear(), x.getMonth(), x.getDate() + 1)) {
     const next = new Date(x.getFullYear(), x.getMonth(), x.getDate() + 1)
     if (!isWeekend(next)) n++
   }

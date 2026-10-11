@@ -146,10 +146,8 @@ func SimulateConfidence(nodes []Node, a *Analysis, dueDates map[string]string, s
 	rand := Mulberry32(c.Seed)
 	finishes := make([]float64, len(order))
 	totals := make([]float64, 0, runs)
-	perTask := make([][]float64, len(order))
-	for k := range perTask {
-		perTask[k] = make([]float64, 0, runs)
-	}
+	// Every run's finish for every task, task-major (perTask[k*runs+r]), in one allocation.
+	perTask := make([]float64, len(order)*runs)
 	hits := make([]int, len(order))
 
 	for r := 0; r < runs; r++ {
@@ -167,7 +165,7 @@ func SimulateConfidence(nodes []Node, a *Analysis, dueDates map[string]string, s
 			}
 			f := start + d
 			finishes[k] = f
-			perTask[k] = append(perTask[k], f)
+			perTask[k*runs+r] = f
 			if f > total {
 				total = f
 			}
@@ -184,8 +182,9 @@ func SimulateConfidence(nodes []Node, a *Analysis, dueDates map[string]string, s
 		if dueCol[k] >= 0 {
 			c.OnTime[id] = float64(hits[k]) / float64(runs)
 		}
-		sort.Float64s(perTask[k])
-		c.P85ByID[id] = percentile(perTask[k], 0.85)
+		samples := perTask[k*runs : (k+1)*runs]
+		sort.Float64s(samples)
+		c.P85ByID[id] = percentile(samples, 0.85)
 	}
 	for _, t := range totals {
 		day := int(math.Ceil(t))
