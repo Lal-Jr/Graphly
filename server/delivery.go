@@ -90,6 +90,7 @@ func (s *Server) runDeliveries(ctx context.Context) (int, error) {
 		}
 		did, err := s.deliverDigest(ctx, g.userID, g.channel)
 		if err != nil {
+			httpErrors.Inc("delivery")
 			slog.Warn("delivery", "user", g.userID, "channel", g.channel, "err", err)
 		}
 		if did {

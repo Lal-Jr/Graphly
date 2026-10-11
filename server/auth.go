@@ -51,6 +51,14 @@ func (s *Server) startSession(ctx context.Context, w http.ResponseWriter, q quer
 }
 
 func (s *Server) currentUser(r *http.Request) (*User, error) {
+	u, err := s.lookupUser(r)
+	if err == nil {
+		noteUser(r.Context(), u.ID)
+	}
+	return u, err
+}
+
+func (s *Server) lookupUser(r *http.Request) (*User, error) {
 	if raw, ok := bearer(r); ok {
 		return s.tokenUser(r.Context(), raw)
 	}

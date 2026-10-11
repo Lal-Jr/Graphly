@@ -188,7 +188,9 @@ func checkRealtimeAcross(t *testing.T, aURL, bURL string) {
 	for name, l := range map[string]*liveConn{"A": la, "B": lb} {
 		var last int64
 		titles := map[string]bool{}
-		l.progress = func() string { return fmt.Sprintf("instance %s: %d of %d issues, last seq %d", name, len(titles), writers*each, last) }
+		l.progress = func() string {
+			return fmt.Sprintf("instance %s: %d of %d issues, last seq %d", name, len(titles), writers*each, last)
+		}
 		for len(titles) < writers*each {
 			m := l.next(func(m liveMsg) bool {
 				if m.Type == "resync" {

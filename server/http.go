@@ -40,7 +40,8 @@ type Server struct {
 	providers map[string]*oauthProvider
 }
 
-func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) *Server {
+func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) (s *Server) {
+	defer func() { s.registerRuntimeCollectors() }()
 	if cfg.ForecastLocation == nil {
 		cfg.ForecastLocation = time.UTC
 	}
@@ -65,7 +66,7 @@ func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) *Server {
 	if cfg.DeliveryMaxAttempts == 0 {
 		cfg.DeliveryMaxAttempts = 8
 	}
-	s := &Server{db: db, hub: hub, cfg: cfg, login: newRateLimiter(10, time.Minute), demo: newRateLimiter(5, 10*time.Minute),
+	s = &Server{db: db, hub: hub, cfg: cfg, login: newRateLimiter(10, time.Minute), demo: newRateLimiter(5, 10*time.Minute),
 		forecasts: newForecastCache(256), mailer: newSMTPMailer(cfg), httpClient: outboundClient(), providers: oauthProviders(cfg),
 		tokenLimit: newRateLimiter(cfg.APITokenRateLimit, time.Minute)}
 	s.onForecast = s.forecastNotifications
@@ -111,7 +112,7 @@ func (s *Server) wrap(h handler) http.HandlerFunc {
 			ae = &apiError{Status: http.StatusBadRequest, Msg: "invalid value"}
 		default:
 			if r.Context().Err() == nil {
-				slog.Error("request failed", "method", r.Method, "path", r.URL.Path, "err", err)
+				slog.Error("request failed", append(logAttrs(r.Context()), "method", r.Method, "path", r.URL.Path, "err", err)...)
 			}
 			ae = &apiError{Status: http.StatusInternalServerError, Msg: "something went wrong"}
 		}
@@ -193,12 +194,14 @@ func (s *Server) sameOrigin(r *http.Request) bool {
 
 func (s *Server) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			if rec := recover(); rec != nil {
-				slog.Error("panic", "path", r.URL.Path, "panic", rec)
-				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "something went wrong"})
-			}
-		}()
+		r = r.WithContext(withAuditIP(r.Context(), clientIP(r, s.cfg.ClientIPHeader)))
+		s.observe(w, r, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.guard(w, r, next) }))
+	})
+}
+
+// guard applies the same-origin check and baseline response headers.
+func (s *Server) guard(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	{
 		webhook := strings.HasPrefix(r.URL.Path, "/api/hooks/")
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && !webhook && !s.sameOrigin(r) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-origin request rejected"})
@@ -206,8 +209,8 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
-		next.ServeHTTP(w, r.WithContext(withAuditIP(r.Context(), clientIP(r, s.cfg.ClientIPHeader))))
-	})
+		next.ServeHTTP(w, r)
+	}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -242,12 +245,10 @@ func (s *Server) Routes() http.Handler {
 		}))
 	}
 
-	h("GET /api/health", func(w http.ResponseWriter, r *http.Request) error {
-		if err := s.db.Ping(r.Context()); err != nil {
-			return errStatus(http.StatusServiceUnavailable, "database unavailable")
-		}
-		return ok(w, map[string]bool{"ok": true})
-	})
+	mux.HandleFunc("GET /healthz", s.healthz)
+	mux.HandleFunc("GET /readyz", s.readyz)
+	mux.HandleFunc("GET /api/health", s.readyz) // older name, kept for existing health checks
+	mux.HandleFunc("GET /metrics", s.metricsHandler(true))
 
 	h("POST /api/auth/signup", s.signup)
 	h("POST /api/auth/login", s.loginHandler)

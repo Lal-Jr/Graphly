@@ -446,6 +446,7 @@ func (s *Server) runForecastJob(ctx context.Context) error {
 			return nil
 		}
 		if _, err := s.recordForecast(ctx, id); err != nil && ctx.Err() == nil {
+			httpErrors.Inc("forecast_job")
 			slog.Warn("forecast project", "project", id, "err", err)
 		}
 	}

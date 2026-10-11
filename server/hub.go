@@ -84,6 +84,8 @@ type Hub struct {
 	db       *pgxpool.Pool
 	instance string
 
+	listening atomic.Bool
+
 	mu       sync.Mutex
 	nextID   int64
 	clients  map[string]map[int64]*client        // project → conn → client
@@ -120,7 +122,12 @@ func (h *Hub) listen(ctx context.Context) error {
 			return err
 		}
 	}
+	h.listening.Store(true)
+	defer h.listening.Store(false)
 	// Anything published while we were disconnected is recovered by clients via ?since= on reconnect.
+	if h.connections() > 0 {
+		realtimeResyncs.Inc("listener_reconnect")
+	}
 	h.resyncAll()
 	for {
 		n, err := conn.Conn().WaitForNotification(ctx)
@@ -135,7 +142,8 @@ func (h *Hub) listen(ctx context.Context) error {
 			}
 			var projectID string
 			var payload json.RawMessage
-			if err := h.db.QueryRow(ctx, `SELECT project_id, payload FROM events WHERE id = $1`, id).Scan(&projectID, &payload); err != nil {
+			var age float64
+			if err := h.db.QueryRow(ctx, `SELECT project_id, payload, extract(epoch FROM clock_timestamp() - created_at) FROM events WHERE id = $1`, id).Scan(&projectID, &payload, &age); err != nil {
 				slog.Warn("load event", "id", id, "err", err)
 				continue
 			}
@@ -147,6 +155,7 @@ func (h *Hub) listen(ctx context.Context) error {
 				h.recheck(projectID, head.UserID)
 			}
 			h.broadcast(projectID, envelope("event", map[string]any{"seq": id, "event": payload}))
+			realtimeLag.Observe(max(age, 0))
 		case presenceChannel:
 			var m presenceMsg
 			if json.Unmarshal([]byte(n.Payload), &m) == nil {
@@ -187,6 +196,20 @@ func (h *Hub) resyncAll() {
 	for _, p := range projects {
 		h.broadcast(p, envelope("resync", map[string]any{}))
 	}
+}
+
+// Listening reports whether this instance is receiving notifications (used by /readyz).
+func (h *Hub) Listening() bool { return h.listening.Load() }
+
+// connections counts this instance's open WebSocket clients.
+func (h *Hub) connections() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, cs := range h.clients {
+		n += len(cs)
+	}
+	return n
 }
 
 func (h *Hub) register(projectID string, user PresenceUser) *client {
@@ -361,6 +384,7 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request, u *User) error {
 		var oldest int64
 		_ = s.db.QueryRow(ctx, `SELECT coalesce(min(id), 0) FROM events`).Scan(&oldest)
 		if oldest > since+1 {
+			realtimeResyncs.Inc("replay_pruned")
 			_ = conn.Write(ctx, websocket.MessageText, envelope("resync", map[string]any{}))
 		} else {
 			rows, err := s.db.Query(ctx, `SELECT id, payload FROM events WHERE project_id = $1 AND id > $2 ORDER BY id`, projectID, since)
@@ -369,6 +393,7 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request, u *User) error {
 					var id int64
 					var payload json.RawMessage
 					if rows.Scan(&id, &payload) == nil {
+						realtimeReplayed.Inc()
 						_ = conn.Write(ctx, websocket.MessageText, envelope("event", map[string]any{"seq": id, "event": payload}))
 					}
 				}

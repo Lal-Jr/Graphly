@@ -21,6 +21,11 @@ func withAuditIP(ctx context.Context, ip string) context.Context {
 	return context.WithValue(ctx, auditCtxKey{}, ip)
 }
 
+func auditIP(ctx context.Context) string {
+	ip, _ := ctx.Value(auditCtxKey{}).(string)
+	return ip
+}
+
 // audit records an action. workspaceID may be empty for account-level actions (tokens, sign-in).
 func (s *Server) audit(ctx context.Context, tx pgx.Tx, workspaceID, actorID, action, targetType, targetID string, data map[string]any) error {
 	if data == nil {
@@ -30,7 +35,7 @@ func (s *Server) audit(ctx context.Context, tx pgx.Tx, workspaceID, actorID, act
 	if err != nil {
 		return err
 	}
-	ip, _ := ctx.Value(auditCtxKey{}).(string)
+	ip := auditIP(ctx)
 	_, err = tx.Exec(ctx, `INSERT INTO audit_log (workspace_id, actor_id, actor_name, action, target_type, target_id, data, ip)
 		VALUES (NULLIF($1, '')::uuid, NULLIF($2, '')::uuid, (SELECT name FROM users WHERE id = NULLIF($2, '')::uuid), $3, $4, NULLIF($5, ''), $6, NULLIF($7, ''))`,
 		workspaceID, actorID, action, targetType, targetID, raw, ip)

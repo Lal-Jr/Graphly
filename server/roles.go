@@ -62,6 +62,7 @@ func effectiveRole(ctx context.Context, q querier, projectID, userID string) (st
 	if err != nil {
 		return "", 0, err
 	}
+	noteWorkspace(ctx, wsID)
 	return wsID, combineRoles(wsRole, override), nil
 }
 
@@ -110,6 +111,7 @@ func (s *Server) workspaceRole(ctx context.Context, q querier, wsID string, u *U
 	if err != nil {
 		return "", err
 	}
+	noteWorkspace(ctx, wsID)
 	if write && role == "viewer" {
 		return "", errStatus(http.StatusForbidden, "viewers can't do that")
 	}

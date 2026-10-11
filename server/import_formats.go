@@ -324,7 +324,7 @@ type jiraIssue struct {
 
 func parseJiraJSON(content []byte) (parsed, error) {
 	var doc struct {
-		Issues []jiraIssue        `json:"issues"`
+		Issues []jiraIssue       `json:"issues"`
 		Names  map[string]string `json:"names"`
 	}
 	if content[0] == '[' {
@@ -591,19 +591,19 @@ type linearRef struct {
 }
 
 type linearIssue struct {
-	Identifier    string      `json:"identifier"`
-	Title         string      `json:"title"`
-	Description   string      `json:"description"`
-	Priority      *int        `json:"priority"`
-	PriorityLabel string      `json:"priorityLabel"`
-	Estimate      *float64    `json:"estimate"`
-	DueDate       string      `json:"dueDate"`
-	CreatedAt     string      `json:"createdAt"`
+	Identifier    string                       `json:"identifier"`
+	Title         string                       `json:"title"`
+	Description   string                       `json:"description"`
+	Priority      *int                         `json:"priority"`
+	PriorityLabel string                       `json:"priorityLabel"`
+	Estimate      *float64                     `json:"estimate"`
+	DueDate       string                       `json:"dueDate"`
+	CreatedAt     string                       `json:"createdAt"`
 	State         *struct{ Name, Type string } `json:"state"`
-	Assignee      *linearUser `json:"assignee"`
-	Creator       *linearUser `json:"creator"`
-	Team          *struct{ Key, Name string } `json:"team"`
-	Parent        *linearRef  `json:"parent"`
+	Assignee      *linearUser                  `json:"assignee"`
+	Creator       *linearUser                  `json:"creator"`
+	Team          *struct{ Key, Name string }  `json:"team"`
+	Parent        *linearRef                   `json:"parent"`
 	Labels        struct {
 		Nodes []struct{ Name string } `json:"nodes"`
 	} `json:"labels"`

@@ -18,6 +18,13 @@ import (
 )
 
 type Config struct {
+	// Logging: LOG_FORMAT json (default) or text, LOG_LEVEL debug/info/warn/error, LOG_REQUESTS.
+	LogFormat, LogLevel string
+	LogRequests         bool
+	// /metrics: on the main listener with METRICS_TOKEN as a bearer token, and/or unauthenticated
+	// on a private METRICS_ADDR (e.g. :9090) that isn't exposed publicly.
+	MetricsToken, MetricsAddr string
+
 	Addr          string
 	DatabaseURL   string
 	StaticDir     string
@@ -60,6 +67,9 @@ func loadConfig() Config {
 		SecureCookies:  env("SECURE_COOKIES", "false") == "true",
 		ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
 	}
+	cfg.LogFormat, cfg.LogLevel = env("LOG_FORMAT", "json"), env("LOG_LEVEL", "info")
+	cfg.LogRequests = env("LOG_REQUESTS", "true") == "true"
+	cfg.MetricsToken, cfg.MetricsAddr = os.Getenv("METRICS_TOKEN"), os.Getenv("METRICS_ADDR")
 	loc, err := time.LoadLocation(env("FORECAST_TIMEZONE", "UTC"))
 	if err != nil {
 		fatal("FORECAST_TIMEZONE", err)
@@ -129,8 +139,8 @@ func envInt(k string, def int) int {
 }
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
 	cfg := loadConfig()
+	slog.SetDefault(newLogger(cfg.LogFormat, cfg.LogLevel, os.Stdout))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -156,6 +166,16 @@ func main() {
 	app := NewServer(pool, hub, cfg)
 	go app.forecastLoop(ctx)
 	go app.deliveryLoop(ctx)
+	if cfg.MetricsAddr != "" {
+		go func() {
+			mux := http.NewServeMux()
+			mux.HandleFunc("GET /metrics", app.metricsHandler(false))
+			slog.Info("metrics listening", "addr", cfg.MetricsAddr)
+			if err := http.ListenAndServe(cfg.MetricsAddr, mux); err != nil {
+				slog.Error("metrics listener", "err", err)
+			}
+		}()
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
