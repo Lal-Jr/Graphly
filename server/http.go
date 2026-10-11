@@ -30,6 +30,8 @@ type Server struct {
 	onForecast func(ctx context.Context, prev, cur *ProjectForecast) error
 	// Sends email; nil when SMTP isn't configured.
 	mailer mailer
+	// For outbound calls (Slack, OAuth providers).
+	httpClient *http.Client
 }
 
 func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) *Server {
@@ -48,8 +50,14 @@ func NewServer(db *pgxpool.Pool, hub *Hub, cfg Config) *Server {
 	if cfg.SlackWebhookHosts == nil {
 		cfg.SlackWebhookHosts = []string{"hooks.slack.com"}
 	}
+	if cfg.DeliveryPollInterval == 0 {
+		cfg.DeliveryPollInterval = 5 * time.Second
+	}
+	if cfg.DeliveryMaxAttempts == 0 {
+		cfg.DeliveryMaxAttempts = 8
+	}
 	s := &Server{db: db, hub: hub, cfg: cfg, login: newRateLimiter(10, time.Minute), demo: newRateLimiter(5, 10*time.Minute),
-		forecasts: newForecastCache(256)}
+		forecasts: newForecastCache(256), mailer: newSMTPMailer(cfg), httpClient: outboundClient()}
 	s.onForecast = s.forecastNotifications
 	return s
 }

@@ -37,6 +37,15 @@ type Config struct {
 	ShipDateMoveThreshold int
 	// Hosts a user's Slack incoming webhook may point at.
 	SlackWebhookHosts []string
+	// Where the app is served, for links in emails and Slack messages (and OAuth redirects).
+	PublicURL string
+	// Outgoing email. Leave SMTPHost empty to turn email off.
+	SMTPHost, SMTPPort, SMTPUsername, SMTPPassword, SMTPFrom string
+	// Notification delivery: how long to gather a burst into one digest, how often to look, how
+	// many times to try before giving up.
+	DigestWindow         time.Duration
+	DeliveryPollInterval time.Duration
+	DeliveryMaxAttempts  int
 }
 
 func loadConfig() Config {
@@ -57,6 +66,12 @@ func loadConfig() Config {
 	cfg.CalibrationMinPerType = envInt("CALIBRATION_MIN_PER_TYPE", 5)
 	cfg.ShipDateMoveThreshold = envInt("SHIP_DATE_MOVE_THRESHOLD", 2)
 	cfg.SlackWebhookHosts = envList("SLACK_WEBHOOK_HOSTS", "hooks.slack.com")
+	cfg.PublicURL = strings.TrimRight(os.Getenv("PUBLIC_URL"), "/")
+	cfg.SMTPHost, cfg.SMTPPort = os.Getenv("SMTP_HOST"), env("SMTP_PORT", "587")
+	cfg.SMTPUsername, cfg.SMTPPassword, cfg.SMTPFrom = os.Getenv("SMTP_USERNAME"), os.Getenv("SMTP_PASSWORD"), os.Getenv("SMTP_FROM")
+	cfg.DigestWindow = envDuration("NOTIFY_DIGEST_WINDOW", 2*time.Minute)
+	cfg.DeliveryPollInterval = envDuration("NOTIFY_POLL_INTERVAL", 5*time.Second)
+	cfg.DeliveryMaxAttempts = envInt("NOTIFY_MAX_ATTEMPTS", 8)
 	for _, o := range strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",") {
 		if o = strings.TrimSpace(o); o != "" {
 			cfg.AllowedOrigins = append(cfg.AllowedOrigins, o)
@@ -127,6 +142,7 @@ func main() {
 
 	app := NewServer(pool, hub, cfg)
 	go app.forecastLoop(ctx)
+	go app.deliveryLoop(ctx)
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
