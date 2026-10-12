@@ -47,6 +47,27 @@ Trackers store "blocks" links and then ignore them. You can't see which issue is
   </tr>
 </table>
 
+### New: built for a real team
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/clip-inbox.gif" alt="Opening the notifications inbox and jumping from a mention straight to the issue"></td>
+    <td width="50%"><img src="docs/media/clip-import.gif" alt="Importing a Jira CSV export: a dry-run preview flags a link that would form a cycle, then the issues land on a new board"></td>
+  </tr>
+  <tr>
+    <td><b>An inbox that knows the graph.</b> You were unblocked, @mentioned, a watched issue moved, your work is now forecast late, the ship date moved. Also by email and Slack digest.</td>
+    <td><b>Bring your Jira or Linear plan.</b> A dry run previews every issue and link first, and drops any link that would close a cycle.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/clip-estimates.gif" alt="Insights warns that three open issues have no estimate and lowers the confidence badge; Show them opens the filtered list"></td>
+    <td><img src="docs/media/tokens.jpg" alt="Personal API tokens: shown once, read or write scope, expiry and last use"></td>
+  </tr>
+  <tr>
+    <td><b>Honest about missing estimates.</b> Unestimated work lowers the confidence badge, and one click lists it.</td>
+    <td><b>API tokens.</b> Scoped, expiring, shown once and stored hashed, for scripts that use the <a href="server/openapi.yaml">REST API</a>.</td>
+  </tr>
+</table>
+
 | | |
 |---|---|
 | **Forecast dates** | Every open issue gets a start and finish date from the critical path method over working days. Epics finish when their last child does. |
@@ -80,6 +101,14 @@ Also: workspaces and projects with issue keys (`APL-42`), stories / tasks / bugs
   <tr>
     <td><img src="docs/media/standup.jpg" alt="Standup digest: what moved the date"></td>
     <td><img src="docs/media/dark.jpg" alt="The board in dark mode"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/inbox.jpg" alt="The notifications inbox over the board"></td>
+    <td><img src="docs/media/estimates.jpg" alt="Insights with an unestimated-work warning and a medium confidence badge"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/roles.jpg" alt="Project settings: per-project roles, invite links that carry a role, and GitHub and GitLab integrations"></td>
+    <td><img src="docs/media/audit.jpg" alt="The append-only audit log of role changes, invites, API tokens and imports"></td>
   </tr>
 </table>
 
