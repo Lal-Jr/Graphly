@@ -99,6 +99,7 @@ function useLayout(ids: string[], edges: [string, string][], key: string): Posit
 
 export function GraphView() {
   const d = useProject()
+  const canEdit = d.role !== 'viewer'
   const { match, active } = useFilters()
   const { resolved } = useTheme()
   const toast = useToast()
@@ -231,8 +232,9 @@ export function GraphView() {
           nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
           onConnect={onConnect}
-          onEdgesDelete={(es) => es.forEach((e) => d.store.removeBlocker(e.target, e.source))}
-          deleteKeyCode={['Backspace', 'Delete']}
+          nodesConnectable={canEdit}
+          onEdgesDelete={(es) => canEdit && es.forEach((e) => d.store.removeBlocker(e.target, e.source))}
+          deleteKeyCode={canEdit ? ['Backspace', 'Delete'] : null}
           onNodeClick={(_, n) => openIssue(d.keyOf((n.data as NodeData).issue))}
           fitView
           fitViewOptions={{ padding: 0.15, maxZoom: 1 }}

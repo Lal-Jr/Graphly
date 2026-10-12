@@ -197,4 +197,3 @@ Performance at 5,000 issues and 17,000 links (synthetic plan, `fixtures/forecast
 - **Shared rate limits.** Limits and the forecast cache are per instance, so N instances allow N times the limit. A shared limiter in Postgres or Redis would make them global.
 - **Very large graphs.** The dependency graph view opens big projects focused on the critical path (about 400 issues). "Show all" lays out thousands in a worker, but dagre layout is superlinear and a 4,000-node graph is slow to read anyway. The board pages columns at 100 cards.
 - **Slow request bodies.** There is no server-wide read timeout, because it would also cut WebSockets. Bodies are size-capped instead; put a proxy with request timeouts in front.
-- **Viewer read-only edge cases.** Viewers can't edit from the board or issue sheet. Inline controls in the list and graph still render for them, and the server's 403 shows as an error toast.

@@ -5,7 +5,7 @@ import { Icon, PriorityIcon, TypeIcon } from '../ui/icons'
 import { Avatar, Lozenge, MenuList, Popover } from '../ui/primitives'
 
 export function StatusButton({ issue, onChange, size = 'md' }: { issue: Issue; onChange: (statusId: string) => void; size?: 'sm' | 'md' }) {
-  const { statuses, statusMap } = useProject()
+  const { statuses, statusMap, role } = useProject()
   const cur = statusMap.get(issue.statusId)
   return (
     <Popover
@@ -14,6 +14,7 @@ export function StatusButton({ issue, onChange, size = 'md' }: { issue: Issue; o
         <button
           ref={ref}
           className={`status-btn status-${cur?.category ?? 'todo'} status-btn-${size}${open ? ' open' : ''}`}
+          disabled={role === 'viewer'}
           onClick={(e) => {
             e.stopPropagation()
             toggle()
@@ -47,7 +48,7 @@ export function AssigneePicker({
   onChange: (id: string | null) => void
   compact?: boolean
 }) {
-  const { members, memberMap } = useProject()
+  const { members, memberMap, role } = useProject()
   const cur = value ? memberMap.get(value) : null
   return (
     <Popover
@@ -56,6 +57,7 @@ export function AssigneePicker({
         <button
           ref={ref}
           className={compact ? 'avatar-btn' : 'field-btn'}
+          disabled={role === 'viewer'}
           onClick={(e) => {
             e.stopPropagation()
             toggle()
