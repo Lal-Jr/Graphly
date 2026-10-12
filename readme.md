@@ -4,7 +4,7 @@ Graphly is an issue tracker that treats your plan as a **dependency graph**. Eve
 
 **Live:** [graphly.fly.dev](https://graphly.fly.dev) — click **Try the live demo** to get your own sample workspace, no sign-up.
 
-![A walkthrough: the demo board, tracing a card's dependencies, the issue sheet, the dependency graph, a what-if slip on the forecast, and insights](docs/media/demo.gif)
+![A walkthrough: the demo board, tracing a card's dependencies, the issue sheet, the notifications inbox, the dependency graph, a what-if slip on the forecast, and insights](docs/media/demo.gif)
 
 ## Why
 
