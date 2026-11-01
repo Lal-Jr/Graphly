@@ -9,7 +9,7 @@ COPY web/ ./
 RUN npm run build
 
 # ---- backend ----
-FROM golang:1.26-alpine AS server
+FROM golang:1.27-alpine AS server
 WORKDIR /server
 COPY server/go.mod server/go.sum ./
 RUN go mod download
